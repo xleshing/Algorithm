@@ -4,9 +4,8 @@ import matplotlib.pyplot as plt
 
 class GeneticAlgorithm:
     def __init__(self, particle=100, Elite_num=40, CrossoverRate=0.9, MutationRate=0.1,
-                 MaxIteration=100, knapsack_num=4, values=None, weight=None, max_weight=None):
+                 MaxIteration=100, knapsack_num=4, values=None, max_weight=None):
         self.values = values
-        self.weights = weight
         self.max_weight = max_weight
         self.knapsack_num = knapsack_num
         self.particle_num = particle
@@ -16,14 +15,13 @@ class GeneticAlgorithm:
         self.mr = MutationRate
         self.max_iter = MaxIteration
         self.best_solution = None
-        self.best_fitness = -1
+        self.best_fitness = float("Inf")
         self.fitness_values = np.array([])
         self.best_fitness_list = []
 
     def fitness_value(self, solution, knapsack):
         total_value = np.sum(np.array(self.values) * np.array(solution))
-        total_weight = np.sum(np.array(self.weights) * np.array(solution))
-        if total_weight > self.max_weight[knapsack]:
+        if total_value > self.max_weight[knapsack]:
             return 0
         else:
             return total_value
@@ -42,7 +40,7 @@ class GeneticAlgorithm:
 
 
     def selection(self, population, fitness_values):
-        elite_index = np.argsort(fitness_values)[-self.elite_num:]
+        elite_index = np.argsort(fitness_values)[:self.elite_num]
         elite_parent = [population[idx] for idx in elite_index]
         return elite_parent
 
@@ -104,7 +102,10 @@ class GeneticAlgorithm:
                 for knapsack in range(self.knapsack_num):
                     knapsack_fitness_values[p_index][knapsack] = self.fitness_value(population[p_index][knapsack], knapsack)
             #print(knapsack_fitness_values)
-            self.fitness_values = np.array([np.std(fitness, ddof=0) for fitness in knapsack_fitness_values])
+                #print(np.std(knapsack_fitness_values[p_index], ddof=0))
+
+            self.fitness_values = np.array([np.std((np.array(fitness) / np.array(self.max_weight)).tolist(), ddof=0) for fitness in knapsack_fitness_values])
+            #print(self.fitness_values)
             #print(self.fitness_values)
             elite_parents = self.selection(population, self.fitness_values)
             #print(len(elite_parents))
@@ -126,13 +127,14 @@ class GeneticAlgorithm:
             for new_p_index in range(len(population)):
                 for new_knapsack in range(self.knapsack_num):
                     new_knapsack_fitness_values[new_p_index][new_knapsack] = self.fitness_value(population[new_p_index][new_knapsack], new_knapsack)
-            fitness_values = np.array([np.std(fitness, ddof=0) for fitness in new_knapsack_fitness_values])
-            idx_to_keep = np.argsort(fitness_values)[self.particle_num:]
+            fitness_values = np.array([np.std((np.array(fitness) / np.array(self.max_weight)).tolist(), ddof=0) for fitness in new_knapsack_fitness_values])
+            idx_to_keep = np.argsort(fitness_values)[:self.particle_num]
             population = [population[idx] for idx in idx_to_keep]
             self.best_fitness_list.append(np.min(self.fitness_values))
             if np.min(self.fitness_values) < self.best_fitness:
                 self.best_solution = population[np.argmin(self.fitness_values)]
                 self.best_fitness = np.min(self.fitness_values)
+            print(self.best_fitness)
         return self.best_solution, self.best_fitness
 
     def show(self):
