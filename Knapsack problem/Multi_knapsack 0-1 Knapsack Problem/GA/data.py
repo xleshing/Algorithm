@@ -13,7 +13,6 @@ class Answer:
 
     def answer(self):
         max_weight = [int(line.strip()) for line in self.lines_c]
-        max_weight = max_weight[0]
         values = [int(line.strip()) for line in self.lines_p]
         weights = [int(line.strip()) for line in self.lines_w]
         ans = np.array([int(line.strip()) for line in self.lines_s])
