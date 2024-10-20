@@ -1,4 +1,3 @@
-import numpy as np
 
 class Answer:
     def __init__(self, c, p):

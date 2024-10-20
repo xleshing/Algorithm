@@ -1,6 +1,5 @@
 from algorithm import GeneticAlgorithm
 from data import Answer
-import numpy as np
 
 
 class Main:

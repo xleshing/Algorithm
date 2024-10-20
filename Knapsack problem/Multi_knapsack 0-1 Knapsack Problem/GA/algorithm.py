@@ -121,8 +121,6 @@ class GeneticAlgorithm:
             #print(len(new_population))
             population = population + new_population
 
-            #print(len(population))
-
             new_knapsack_fitness_values = np.zeros(shape=[len(population), self.knapsack_num])
             for new_p_index in range(len(population)):
                 for new_knapsack in range(self.knapsack_num):
