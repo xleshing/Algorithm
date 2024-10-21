@@ -51,14 +51,4 @@ ax.contour(X_grid, Y_grid, Z_grid, 20)
 ax.set_xlim(-1, 1)
 ax.set_ylim(-1, 1)
 plt.ion()
-p = plt.show()
-
-def update_scatter(frame):
-    i, j = frame // 10, frame % 10
-    ax.set_title('iter = ' + str(i))
-    X_tmp = X_list[i] + V_list[i] * j / 10.0
-    plt.setp(line, 'xdata', X_tmp[:, 0], 'ydata', X_tmp[:, 1])
-    return line
-
-ani = FuncAnimation(fig, update_scatter, blit=False, interval=25, frames=500)
-ani.save('pso.gif', writer='pillow', fps=20)
+plt.show()

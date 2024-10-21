@@ -1,6 +1,7 @@
 import numpy as np
 import random
 import matplotlib.pyplot as plt
+import os
 
 class GeneticAlgorithm:
     def __init__(self, particle=100, Elite_num=40, CrossoverRate=0.9, MutationRate=0.1,
@@ -96,7 +97,7 @@ class GeneticAlgorithm:
         #print(self.max_weight)
         population = self.init_population()
         population = self.init_population_dim(population)
-        for _ in range(self.max_iter):
+        for iter in range(self.max_iter):
             knapsack_fitness_values = np.zeros(shape=[self.particle_num, self.knapsack_num])
             for p_index in range(self.particle_num):
                 for knapsack in range(self.knapsack_num):
@@ -132,7 +133,12 @@ class GeneticAlgorithm:
             if np.min(self.fitness_values) < self.best_fitness:
                 self.best_solution = population[np.argmin(self.fitness_values)]
                 self.best_fitness = np.min(self.fitness_values)
-            print(self.best_fitness)
+
+
+            os.system('cls' if os.name == 'nt' else 'clear')
+            print(self.best_fitness, iter)
+
+
         return self.best_solution, self.best_fitness
 
     def show(self):
