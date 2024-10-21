@@ -1,10 +1,6 @@
 from algorithm import PSO
-
 import numpy as np
-
 import matplotlib.pyplot as plt
-
-from matplotlib.animation import FuncAnimation
 from func import func
 
 processing_times = np.array([
