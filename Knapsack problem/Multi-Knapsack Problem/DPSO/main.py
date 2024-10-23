@@ -3,33 +3,24 @@ import numpy as np
 import matplotlib.pyplot as plt
 from func import func
 
-processing_times = np.array([
-    [54, 9, 38, 95],
-    [34, 15, 19, 34],
-    [61, 89, 28, 7],
-    [2, 70, 87, 29]])
+knapsack = [700, 500, 600, 800]
+item = [52, 70, 73, 77, 78, 80, 80, 82, 88, 90, 94, 98, 106, 111, 121]
 
-machines = np.array([
-    [2, 0, 3, 1],
-    [3, 0, 1, 2],
-    [0, 1, 2, 3],
-    [0, 2, 1, 3]])
+func = func(knapsack, item)
 
-func = func(machines.shape[0], machines.shape[1], processing_times=processing_times)
-
-def check(n=machines):
-    return func.check(n)
+def check(sol):
+    return func.fitness_value(sol)
 
 p = 1000
 
-d = machines.shape[0]
+d = 1
 iters = 100
 
-x_max = 23 * np.ones(d)
+x_max = len(knapsack) ** len(item) - 1
 
-x_min = 0 * np.ones(d)
+x_min = 0
 
-optimizer = PSO(funct=check, num_dim=d, num_particle=p, max_iter=iters, x_max=x_max, x_min=x_min, c1=10, c2=10, k=2)
+optimizer = PSO(funct=check, num_dim=d, num_particle=p, max_iter=iters, x_max=x_max, x_min=x_min, c1=10, c2=10, k=2, knapsack=knapsack)
 optimizer.update()
 optimizer.plot_curve()
 

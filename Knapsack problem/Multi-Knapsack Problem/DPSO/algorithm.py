@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 np.random.seed(42)
 
 class PSO:
-    def __init__(self, funct, num_dim, x_max, x_min, num_particle=20, max_iter=500, w_max=0.9, w_min=0.4, c1=2.0, c2=2.0, k=0.2):
+    def __init__(self, funct, num_dim, x_max, x_min, num_particle=20, max_iter=500, w_max=0.9, w_min=0.4, c1=2.0, c2=2.0, k=0.2, knapsack=None):
         self.funct = funct
         self.num_dim = num_dim
         self.num_particle = num_particle
@@ -17,13 +17,14 @@ class PSO:
         self.c2 = c2
         self.k = k
         self._iter = 1
+        self.knapsack = knapsack
         self.global_best_curve = np.zeros(self.max_iter)
         self.X = np.random.randint(low=self.x_min, high=self.x_max+1, size=[self.num_particle, self.num_dim])  # Initialize particles
         self.V = np.zeros(shape=[self.num_particle, self.num_dim])
         self.v_max = (self.k * (self.x_max - self.x_min) / 2) * np.ones([self.num_dim])
         self.individual_best_solution = self.X.copy()
 
-        self.individual_best_value = np.array([int(self.funct(position)) for position in self.X])
+        self.individual_best_value = np.array([np.std(self.funct(position[0]) / np.array(self.knapsack), ddof=0) for position in self.X])
 
         self.global_best_solution = self.individual_best_solution[self.individual_best_value.argmin()].copy()
         self.global_best_value = self.individual_best_value.min()
