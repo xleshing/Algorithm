@@ -9,19 +9,17 @@ item = [52, 70, 73, 77, 78, 80, 80, 82, 88, 90, 94, 98, 106, 111, 121]
 
 func = func(knapsack, item)
 
+
 def check(sol):
     return func.fitness_value(sol)
 
-p = 1000
-
-iters = 100
 
 x_max = len(knapsack) ** len(item) - 1
 
 x_min = 0
-optimizer = PSO(funct=check, num_particle=p, max_iter=iters, x_max=x_max, x_min=x_min, knapsack=knapsack)
+optimizer = PSO(funct=check, num_particle=1000, max_iter=100, x_max=x_max, x_min=x_min, knapsack=knapsack)
 sol = optimizer.update()
-print(func.change_sol(sol).tolist())
+print(func.change_sol(sol))
 optimizer.plot_curve()
 
 X_list = optimizer.X_history

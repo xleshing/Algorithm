@@ -1,5 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import os
 
 np.random.seed(42)
 
@@ -61,12 +62,16 @@ class PSO:
                         self.global_best_solution = self.X[i].copy()
 
             self.global_best_curve[self._iter - 1] = self.global_best_value
+
+            os.system('cls' if os.name == 'nt' else 'clear')
+            print(self.global_best_value, self._iter)
+
             self._iter += 1
         return self.global_best_solution
 
     def plot_curve(self):
         plt.figure()
-        plt.title('Loss Curve [' + str(round(self.global_best_curve[-1], 3)) + ']')
+        plt.title('Loss Curve [{:.5f}]'.format(self.global_best_value))
         plt.plot(self.global_best_curve, label='Loss')
         plt.grid()
         plt.legend()
