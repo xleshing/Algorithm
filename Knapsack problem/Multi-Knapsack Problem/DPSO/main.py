@@ -5,6 +5,7 @@ from func import func
 
 knapsack = [700, 500, 600, 800]
 item = [52, 70, 73, 77, 78, 80, 80, 82, 88, 90, 94, 98, 106, 111, 121]
+# item = [52, 70, 73, 77]
 
 func = func(knapsack, item)
 
@@ -13,15 +14,14 @@ def check(sol):
 
 p = 1000
 
-d = 1
 iters = 100
 
 x_max = len(knapsack) ** len(item) - 1
 
 x_min = 0
-
-optimizer = PSO(funct=check, num_dim=d, num_particle=p, max_iter=iters, x_max=x_max, x_min=x_min, c1=10, c2=10, k=2, knapsack=knapsack)
-optimizer.update()
+optimizer = PSO(funct=check, num_particle=p, max_iter=iters, x_max=x_max, x_min=x_min, knapsack=knapsack)
+sol = optimizer.update()
+print(func.change_sol(sol).tolist())
 optimizer.plot_curve()
 
 X_list = optimizer.X_history
