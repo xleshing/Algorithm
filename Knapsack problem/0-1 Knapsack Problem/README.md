@@ -19,3 +19,5 @@ The instance data file for this problem contains the following:
 - **Knapsack capacity**: The maximum weight the knapsack can carry.
 - **Item values**: A list of values, where each value represents the value of an item.
 - **Item weights**: A list of weights, where each weight represents the weight of an item.
+
+- **[Data source](http://mistic.heig-vd.ch/taillard/problemes.dir/ordonnancement.dir/openshop.dir/tai4_4.txt)**
