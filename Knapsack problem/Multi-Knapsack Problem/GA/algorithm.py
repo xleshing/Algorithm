@@ -4,8 +4,8 @@ import matplotlib.pyplot as plt
 import os
 
 class GeneticAlgorithm:
-    def __init__(self, particle=100, Elite_num=40, CrossoverRate=0.9, MutationRate=0.1,
-                 MaxIteration=100, knapsack_num=4, values=None, max_weight=None):
+    def __init__(self, values, max_weight, particle=100, Elite_num=40, CrossoverRate=0.9, MutationRate=0.1,
+                 MaxIteration=100, knapsack_num=4):
         self.values = values
         self.max_weight = max_weight
         self.knapsack_num = knapsack_num
