@@ -23,7 +23,7 @@ class GeneticAlgorithm:
     def fitness_value(self, solution, knapsack):
         total_value = np.sum(np.array(self.values) * np.array(solution))
         if total_value > self.max_weight[knapsack]:
-            return 0
+            return self.max_weight[knapsack]
         else:
             return total_value
 
@@ -145,5 +145,5 @@ class GeneticAlgorithm:
         plt.plot(self.best_fitness_list)
         plt.xlabel('Generation')
         plt.ylabel('Best Fitness')
-        plt.title('Genetic Algorithm Optimization Process')
+        plt.title('Genetic Algorithm Optimization Process[{:.5f}]'.format(self.best_fitness))
         plt.show()
