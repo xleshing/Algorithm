@@ -2,12 +2,14 @@ from algorithm import PSO
 import numpy as np
 import matplotlib.pyplot as plt
 from func import func
+from data import Answer
 
-knapsack = [700, 500, 600, 800]
-item = [52, 70, 73, 77, 78, 80, 80, 82, 88, 90, 94, 98, 106, 111, 121]
-# item = [52, 70, 73, 77]
+a = Answer("p07_c.txt", "p07_p.txt", "p07_o.txt")
+knapsack = a.answer()[1]
+item = a.answer()[0]
+old_value = a.answer()[2]
 
-func = func(knapsack, item)
+func = func(knapsack, item, old_value)
 
 
 def check(sol):
@@ -19,7 +21,7 @@ x_max = len(knapsack) ** len(item) - 1
 x_min = 0
 optimizer = PSO(funct=check, num_particle=1000, max_iter=100, x_max=x_max, x_min=x_min, knapsack=knapsack)
 sol = optimizer.update()
-print(func.change_sol(sol))
+print(func.change_sol(sol).tolist())
 optimizer.plot_curve()
 
 X_list = optimizer.X_history

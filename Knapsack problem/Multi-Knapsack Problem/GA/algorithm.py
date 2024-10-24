@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import os
 
 class GeneticAlgorithm:
-    def __init__(self, values, max_weight, particle=100, Elite_num=40, CrossoverRate=0.9, MutationRate=0.1,
+    def __init__(self, values, max_weight, old_value, particle=100, Elite_num=40, CrossoverRate=0.9, MutationRate=0.1,
                  MaxIteration=100, knapsack_num=4):
         self.values = values
         self.max_weight = max_weight
@@ -19,9 +19,10 @@ class GeneticAlgorithm:
         self.best_fitness = float("Inf")
         self.fitness_values = np.array([])
         self.best_fitness_list = []
+        self.old_value = old_value
 
-    def fitness_value(self, solution, knapsack):
-        total_value = np.sum(np.array(self.values) * np.array(solution))
+    def fitness_value(self, solution, knapsack, old_value):
+        total_value = np.sum(np.array(self.values) * np.array(solution)) + old_value[knapsack]
         if total_value > self.max_weight[knapsack]:
             return self.max_weight[knapsack]
         else:
@@ -101,7 +102,7 @@ class GeneticAlgorithm:
             knapsack_fitness_values = np.zeros(shape=[self.particle_num, self.knapsack_num])
             for p_index in range(self.particle_num):
                 for knapsack in range(self.knapsack_num):
-                    knapsack_fitness_values[p_index][knapsack] = self.fitness_value(population[p_index][knapsack], knapsack)
+                    knapsack_fitness_values[p_index][knapsack] = self.fitness_value(population[p_index][knapsack], knapsack, self.old_value)
             #print(knapsack_fitness_values)
                 #print(np.std(knapsack_fitness_values[p_index], ddof=0))
 
@@ -125,7 +126,7 @@ class GeneticAlgorithm:
             new_knapsack_fitness_values = np.zeros(shape=[len(population), self.knapsack_num])
             for new_p_index in range(len(population)):
                 for new_knapsack in range(self.knapsack_num):
-                    new_knapsack_fitness_values[new_p_index][new_knapsack] = self.fitness_value(population[new_p_index][new_knapsack], new_knapsack)
+                    new_knapsack_fitness_values[new_p_index][new_knapsack] = self.fitness_value(population[new_p_index][new_knapsack], new_knapsack, self.old_value)
             fitness_values = np.array([np.std((np.array(fitness) / np.array(self.max_weight)).tolist(), ddof=0) for fitness in new_knapsack_fitness_values])
             idx_to_keep = np.argsort(fitness_values)[:self.particle_num]
             population = [population[idx] for idx in idx_to_keep]
@@ -145,5 +146,5 @@ class GeneticAlgorithm:
         plt.plot(self.best_fitness_list)
         plt.xlabel('Generation')
         plt.ylabel('Best Fitness')
-        plt.title('Genetic Algorithm Optimization Process[{:.5f}]'.format(self.best_fitness))
+        plt.title('Loss Curve [{:.5f}]'.format(self.best_fitness))
         plt.show()

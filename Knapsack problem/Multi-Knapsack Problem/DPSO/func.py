@@ -2,9 +2,10 @@ import numpy as np
 
 
 class func:
-    def __init__(self, knapsack, iterm):
+    def __init__(self, knapsack, iterm, old_value):
         self.max_weight = knapsack
         self.values = iterm
+        self.old_value = old_value
 
     def get_permutation(self, index):
         knapsack_num = len(self.max_weight)
@@ -31,7 +32,7 @@ class func:
     def fitness_value(self, solution):
         solution = int(solution)
         sol = self.change_sol(solution)
-        total_value = [np.sum(np.array(self.values) * np.array(s)) for s in sol]
+        total_value = [np.sum(np.array(self.values) * np.array(s)) for s in sol] + np.array(self.old_value)
 
         for values in range(len(total_value)):
             if total_value[values] > self.max_weight[values]:
@@ -40,5 +41,5 @@ class func:
 
 
 if __name__ == "__main__":
-    f = func([100, 100, 100, 100], [1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
+    f = func([100, 100, 100, 100], [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], [100, 0, 0, 100])
     print(f.fitness_value(0))
