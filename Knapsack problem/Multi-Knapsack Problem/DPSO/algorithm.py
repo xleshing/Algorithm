@@ -72,6 +72,8 @@ class PSO:
     def plot_curve(self):
         plt.figure()
         plt.title('Loss Curve [{:.5f}]'.format(self.global_best_value))
+        plt.ylabel('Best Fitness')
+        plt.xlabel('Generation')
         plt.plot(self.global_best_curve, label='Loss')
         plt.grid()
         plt.legend()
