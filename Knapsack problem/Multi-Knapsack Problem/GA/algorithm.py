@@ -28,19 +28,6 @@ class GeneticAlgorithm:
         else:
             return total_value
 
-    def init_population(self):
-        return [np.random.randint(self.knapsack_num, size=[self.item_num]) for _ in range(self.particle_num)]
-
-    def init_population_dim(self, population):
-        sol = [np.zeros(shape=[self.knapsack_num, self.item_num]) for _ in range(self.particle_num)]
-        for chromosome in range(len(population)):
-            item = 0
-            for knapsack in population[chromosome]:
-                sol[chromosome][knapsack, item] = 1
-                item += 1
-        return sol
-
-
     def selection(self, population, fitness_values):
         elite_index = np.argsort(fitness_values)[:self.elite_num]
         elite_parent = [population[idx] for idx in elite_index]

@@ -1,4 +1,4 @@
-from data import Answer
+"""from data import Answer
 import numpy as np
 
 answer = Answer("p07_c.txt", "p07_p.txt", "p07_o.txt")
@@ -16,3 +16,6 @@ for b in a:
     index += 1
 print(np.array(ans))
 
+"""
+a = []
+print(len(a))
