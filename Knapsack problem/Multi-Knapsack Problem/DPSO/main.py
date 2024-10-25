@@ -19,7 +19,7 @@ def check(sol):
 x_max = len(knapsack) ** len(item) - 1
 
 x_min = 0
-optimizer = PSO(funct=check, num_particle=1000, max_iter=100, x_max=x_max, x_min=x_min, knapsack=knapsack)
+optimizer = PSO(funct=check, num_particle=500, max_iter=100, x_max=x_max, x_min=x_min, knapsack=knapsack)
 sol = optimizer.update()
 print(func.change_sol(sol).tolist())
 optimizer.plot_curve()

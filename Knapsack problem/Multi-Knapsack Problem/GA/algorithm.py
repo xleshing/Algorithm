@@ -2,16 +2,17 @@ import numpy as np
 import random
 import matplotlib.pyplot as plt
 import os
+from init_papulation import Init_population
 
 class GeneticAlgorithm:
     def __init__(self, values, max_weight, old_value, particle=100, Elite_num=40, CrossoverRate=0.9, MutationRate=0.1,
-                 MaxIteration=100, knapsack_num=4):
+                 MaxIteration=100):
         self.values = values
         self.max_weight = max_weight
-        self.knapsack_num = knapsack_num
+        self.knapsack_num = len(max_weight)
         self.particle_num = particle
         self.item_num = len(self.values)
-        self.elite_num = Elite_num
+        self.elite_num = int((Elite_num / 100) * self.particle_num)
         self.cr = CrossoverRate
         self.mr = MutationRate
         self.max_iter = MaxIteration
@@ -20,6 +21,7 @@ class GeneticAlgorithm:
         self.fitness_values = np.array([])
         self.best_fitness_list = []
         self.old_value = old_value
+        self.init_population = Init_population(self.values, self.max_weight, self.knapsack_num, self.old_value, self.particle_num)
 
     def fitness_value(self, solution, knapsack, old_value):
         total_value = np.sum(np.array(self.values) * np.array(solution)) + old_value[knapsack]
@@ -28,41 +30,29 @@ class GeneticAlgorithm:
         else:
             return total_value
 
-    def selection(self, population, fitness_values):
+    def selection(self, population, fitness_values) -> list:
         elite_index = np.argsort(fitness_values)[:self.elite_num]
         elite_parent = [population[idx] for idx in elite_index]
         return elite_parent
 
-    def crossover(self, parent1, parent2):
-        # 1. 隨機選擇交配點的數量（至少一個，最多為物品數減一）
-        num_crossover_points = random.randint(1, self.item_num - 1)
+    def crossover(self, parent1, parent2) :
+        # 1. 隨機選擇一個交配點（範圍從1到物品數減一）
+        crossover_point = random.randint(1, self.item_num - 1)
 
-        # 2. 根據選擇的數量，在物品範圍內隨機選擇多個交配點，並進行排序
-        crossover_points = sorted(random.sample(range(1, self.item_num), num_crossover_points))
-
-        # 3. 初始化兩個子代的染色體，與父代的形狀相同，但值設為零
+        # 2. 初始化兩個子代的染色體，與父代的形狀相同，但值設為零
         child1 = np.zeros_like(parent1)
         child2 = np.zeros_like(parent2)
 
-        # 4. 開始交換基因的區間
-        start = 0
-        for i, point in enumerate(crossover_points):
-            if i % 2 == 0:
-                # 當 i 是偶數時，子代1繼承父代1的基因，子代2繼承父代2的基因
-                child1[:, start:point] = parent1[:, start:point]
-                child2[:, start:point] = parent2[:, start:point]
-            else:
-                # 當 i 是奇數時，子代1繼承父代2的基因，子代2繼承父代1的基因
-                child1[:, start:point] = parent2[:, start:point]
-                child2[:, start:point] = parent1[:, start:point]
-            # 更新起始點為當前切點
-            start = point
+        # 3. 交換基因的區間
+        # 子代1繼承父代1的基因到交配點，之後繼承父代2的基因
+        child1[:, :crossover_point] = parent1[:, :crossover_point]
+        child1[:, crossover_point:] = parent2[:, crossover_point:]
 
-        # 5. 處理剩餘部分的基因（從最後一個交配點到染色體結尾）
-        child1[:, start:] = parent1[:, start:]
-        child2[:, start:] = parent2[:, start:]
+        # 子代2繼承父代2的基因到交配點，之後繼承父代1的基因
+        child2[:, :crossover_point] = parent2[:, :crossover_point]
+        child2[:, crossover_point:] = parent1[:, crossover_point:]
 
-        # 6. 返回兩個子代
+        # 4. 返回兩個子代
         return child1, child2
 
     def mutate(self, child):
@@ -82,9 +72,9 @@ class GeneticAlgorithm:
         return child
 
     def genetic_algorithm(self):
-        #print(self.max_weight)
-        population = self.init_population()
-        population = self.init_population_dim(population)
+        population = self.init_population.init_population(self.particle_num)
+        population = self.init_population.init_population_dim(population, self.particle_num)
+        population = self.init_population.fix_population(population)
         for iter in range(self.max_iter):
             knapsack_fitness_values = np.zeros(shape=[self.particle_num, self.knapsack_num])
             for p_index in range(self.particle_num):
