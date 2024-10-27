@@ -73,8 +73,8 @@ class GeneticAlgorithm:
 
     def check_fitness(self, fitness):
         if np.prod(fitness) == 0:
-            fitness[1] = np.sum(self.max_weight) ** 100
-            fitness[-1] = -np.sum(self.max_weight) ** 100
+            fitness[0] = np.sum(self.max_weight)
+            fitness[-1] = -np.sum(self.max_weight)
 
         return fitness
 
