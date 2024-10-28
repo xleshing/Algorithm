@@ -1,3 +1,5 @@
+import numpy as np
+
 
 class Answer:
     def __init__(self, c, p, o):
@@ -9,7 +11,7 @@ class Answer:
             self.lines_o = file.readlines()
 
     def answer(self):
-        max_weight = [float(line.strip()) for line in self.lines_c]
-        values = [float(line.strip()) for line in self.lines_p]
-        old_values = [float(line.strip()) for line in self.lines_o]
-        return [max_weight, values, old_values]
+        max_weight = [[float(each_line.strip()) for each_line in line.split()] for line in self.lines_c]
+        values = [[float(each_line.strip()) for each_line in line.split()] for line in self.lines_p]
+        old_values = [[float(each_line.strip()) for each_line in line.split()] for line in self.lines_o]
+        return [np.array(max_weight).T, np.array(values).T, np.array(old_values).T]

@@ -5,13 +5,14 @@ import os
 from init_papulation import Init_population
 
 class GeneticAlgorithm:
-    def __init__(self, values, max_weight, old_value, particle=100, Elite_num=40, CrossoverRate=0.9, MutationRate=0.1,
+    def __init__(self, values: np.array, max_weight, old_value, dim, particle=100, Elite_num=40, CrossoverRate=0.9, MutationRate=0.1,
                  MaxIteration=100):
+        self.dim = dim
         self.values = values
         self.max_weight = max_weight
         self.knapsack_num = len(max_weight)
         self.particle_num = particle
-        self.item_num = len(self.values)
+        self.item_num = self.values.shape[1]
         self.elite_num = int((Elite_num / 100) * self.particle_num)
         self.cr = CrossoverRate
         self.mr = MutationRate
@@ -21,7 +22,7 @@ class GeneticAlgorithm:
         self.fitness_values = np.array([])
         self.best_fitness_list = []
         self.old_value = old_value
-        self.init_population = Init_population(self.values, self.max_weight, self.knapsack_num, self.old_value, self.particle_num)
+        self.init_population = Init_population(self.dim, self.values, self.max_weight, self.knapsack_num, self.old_value, self.particle_num)
 
     def fitness_value(self, solution, knapsack, old_value):
         total_value = np.sum(np.array(self.values) * np.array(solution)) + old_value[knapsack]
@@ -82,6 +83,7 @@ class GeneticAlgorithm:
         population = self.init_population.init_population(self.particle_num)
         population = self.init_population.init_population_dim(population, self.particle_num)
         population = self.init_population.fix_population(population)
+        print(population)
         for iter in range(self.max_iter):
             knapsack_fitness_values = np.zeros(shape=[self.particle_num, self.knapsack_num])
             for p_index in range(self.particle_num):
