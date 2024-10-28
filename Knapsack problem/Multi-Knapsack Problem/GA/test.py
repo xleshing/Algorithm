@@ -15,6 +15,6 @@ class Test:
         ans = []
         index = 0
         for b in a:
-            ans.append([(np.sum(b * w) + o[index]) / c[index], np.sum(b * w) + o[index], c[index]])
+            ans.append(["{:.5%}".format((np.sum(b * w) + o[index]) / c[index]), np.sum(b * w) + o[index], c[index]])
             index += 1
         print(np.array(ans))
