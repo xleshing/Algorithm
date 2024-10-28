@@ -1,20 +1,20 @@
-from data import Answer
 import numpy as np
 
 class Test:
-    def __init__(self, a, func):
+    def __init__(self, sol, func, dim):
         self.answer = func
-        self.a = a
+        self.sol = sol
+        self.dim = dim
 
     def print_answer(self):
         c = np.array(self.answer.answer()[0])
-        w = np.array(self.answer.answer()[1])
+        p = np.array(self.answer.answer()[1])
         o = np.array(self.answer.answer()[2])
 
-        a = np.array(self.a)
+        sol = np.array(self.sol)
         ans = []
         index = 0
-        for b in a:
-            ans.append(["{:.5%}".format((np.sum(b * w) + o[index]) / c[index]), np.sum(b * w) + o[index], c[index]])
+        for each_sol in sol:
+            ans.append([["{:.5%}".format((np.sum(each_sol * p[dim]) + o[dim][index]) / c[dim][index]), np.sum(each_sol * p[dim]) + o[dim][index], c[dim][index]] for dim in range(self.dim)])
             index += 1
         print(np.array(ans))

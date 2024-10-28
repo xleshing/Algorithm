@@ -1,12 +1,12 @@
 import numpy as np
 
 class Init_population:
-    def __init__(self, dim, values: np.array, max_weight: np.array, knapsack_num: int, old_value: np.array, particle_num: int):
+    def __init__(self, dim, item_num, values: np.array, max_weight: np.array, knapsack_num: int, old_value: np.array, particle_num: int):
         self.values = values
         self.max_weight = max_weight
         self.knapsack_num = knapsack_num
         self.old_value = old_value
-        self.item_num = self.values.shape[1]
+        self.item_num = item_num
         self.particle_num = particle_num
         self.dim = dim
 
@@ -26,8 +26,8 @@ class Init_population:
                 item += 1
         return sol
 
-    def fitness_value(self, solution: list, knapsack: int, old_value: list, dim: int):
-        total_value = np.sum(np.array(self.values[dim]) * np.array(solution)) + old_value[dim][knapsack]
+    def fitness_value(self, solution: list, knapsack: int, dim: int):
+        total_value = np.sum(np.array(self.values[dim]) * np.array(solution)) + self.old_value[dim][knapsack]
         return total_value
 
     def fix_population(self, population: list) -> list:
@@ -37,14 +37,16 @@ class Init_population:
             while True:
                 if index >= len(population):
                     break
-                for each_knapsack in range(len(population[index])):
-                    for dim in range(self.dim):
-                        if self.fitness_value(population[index][each_knapsack], each_knapsack, self.old_value, dim) > self.max_weight[dim][each_knapsack]:
+                for dim in range(self.dim):
+                    for each_knapsack in range(self.knapsack_num):
+                        if self.fitness_value(population[index][each_knapsack], each_knapsack, dim) > self.max_weight[dim][each_knapsack]:
                             del population[index]
                             is_remove = True
                             break
                         else:
                             is_remove = False
+                    if is_remove:
+                        break
 
                 if not is_remove:
                     index += 1

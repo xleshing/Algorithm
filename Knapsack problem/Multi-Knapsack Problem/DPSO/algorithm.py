@@ -19,7 +19,7 @@ class PSO:
         self._iter = 1
         self.knapsack = knapsack
         self.global_best_curve = np.zeros(self.max_iter)
-        self.X = np.random.randint(low=self.x_min, high=self.x_max+1, size=[self.num_particle])  # Initialize particles
+        self.X = np.random.randint(low=self.x_min, high=self.x_max+1, size=[self.num_particle], dtype=np.float64)  # Initialize particles
         self.V = np.zeros(shape=[self.num_particle])
         self.v_max = np.array([(self.k * (self.x_max - self.x_min) / 2)])
         self.individual_best_solution = self.X.copy()
