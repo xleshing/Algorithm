@@ -5,16 +5,14 @@ from func import func
 from data import Answer
 
 a = Answer("p07_c.txt", "p07_p.txt", "p07_o.txt")
-knapsack = a.answer()[1]
-item = a.answer()[0]
+knapsack = a.answer()[0]
+item = a.answer()[1]
 old_value = a.answer()[2]
 
 func = func(knapsack, item, old_value)
 
-
 def check(sol):
     return func.fitness_value(sol)
-
 
 x_max = len(knapsack) ** len(item) - 1
 

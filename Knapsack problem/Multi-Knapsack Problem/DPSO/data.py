@@ -9,7 +9,7 @@ class Answer:
             self.lines_o = file.readlines()
 
     def answer(self):
-        max_weight = [int(line.strip()) for line in self.lines_c]
-        values = [int(line.strip()) for line in self.lines_p]
-        old_values = [int(line.strip()) for line in self.lines_o]
-        return [values, max_weight, old_values]
+        max_weight = [float(line.strip()) for line in self.lines_c]
+        values = [float(line.strip()) for line in self.lines_p]
+        old_values = [float(line.strip()) for line in self.lines_o]
+        return [max_weight, values, old_values]

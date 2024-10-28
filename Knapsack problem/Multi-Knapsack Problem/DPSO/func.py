@@ -38,8 +38,3 @@ class func:
             if total_value[values] > self.max_weight[values]:
                 total_value[values] = self.max_weight[values]
         return np.array(total_value)
-
-
-if __name__ == "__main__":
-    f = func([100, 100, 100, 100], [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], [100, 0, 0, 100])
-    print(f.fitness_value(0))
