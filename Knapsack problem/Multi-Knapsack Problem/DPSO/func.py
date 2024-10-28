@@ -1,7 +1,7 @@
 import numpy as np
 
 
-class func:
+class Func:
     def __init__(self, knapsack, iterm, old_value):
         self.max_weight = knapsack
         self.values = iterm
