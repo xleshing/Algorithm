@@ -1,5 +1,4 @@
 import numpy as np
-from data import Answer
 
 
 class Data_factory:

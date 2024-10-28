@@ -1,7 +1,9 @@
 import numpy as np
 
+
 class Init_population:
-    def __init__(self, dim, item_num, values: np.array, max_weight: np.array, knapsack_num: int, old_value: np.array, particle_num: int):
+    def __init__(self, dim, item_num, values: np.array, max_weight: np.array, knapsack_num: int, old_value: np.array,
+                 particle_num: int):
         self.values = values
         self.max_weight = max_weight
         self.knapsack_num = knapsack_num
@@ -39,7 +41,8 @@ class Init_population:
                     break
                 for dim in range(self.dim):
                     for each_knapsack in range(self.knapsack_num):
-                        if self.fitness_value(population[index][each_knapsack], each_knapsack, dim) > self.max_weight[dim][each_knapsack]:
+                        if self.fitness_value(population[index][each_knapsack], each_knapsack, dim) > \
+                                self.max_weight[dim][each_knapsack]:
                             del population[index]
                             is_remove = True
                             break
@@ -51,7 +54,8 @@ class Init_population:
                 if not is_remove:
                     index += 1
 
-            new_sol = self.init_population_dim(self.init_population(self.particle_num - len(population)), self.particle_num - len(population))
+            new_sol = self.init_population_dim(self.init_population(self.particle_num - len(population)),
+                                               self.particle_num - len(population))
 
             population = population + new_sol
 
@@ -59,7 +63,3 @@ class Init_population:
                 break
 
         return population
-
-
-
-

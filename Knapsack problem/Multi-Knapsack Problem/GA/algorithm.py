@@ -4,8 +4,10 @@ import matplotlib.pyplot as plt
 import os
 from init_papulation import Init_population
 
+
 class GeneticAlgorithm:
-    def __init__(self, values: np.array, max_weight: np.array, old_value: np.array, dim, particle=100, Elite_num=40, CrossoverRate=0.9, MutationRate=0.1,
+    def __init__(self, values: np.array, max_weight: np.array, old_value: np.array, dim, particle=100, Elite_num=40,
+                 CrossoverRate=0.9, MutationRate=0.1,
                  MaxIteration=100):
         self.dim = dim
         self.values = values
@@ -22,7 +24,8 @@ class GeneticAlgorithm:
         self.fitness_values = np.array([])
         self.best_fitness_list = []
         self.old_value = old_value
-        self.init_population = Init_population(self.dim, self.item_num, self.values, self.max_weight, self.knapsack_num, self.old_value, self.particle_num)
+        self.init_population = Init_population(self.dim, self.item_num, self.values, self.max_weight, self.knapsack_num,
+                                               self.old_value, self.particle_num)
 
     def fitness_value(self, solution, knapsack, dim):
         total_value = np.sum(np.array(self.values[dim]) * np.array(solution)) + self.old_value[dim][knapsack]
@@ -33,7 +36,7 @@ class GeneticAlgorithm:
         elite_parent = [population[idx] for idx in elite_index]
         return elite_parent
 
-    def crossover(self, parent1, parent2) :
+    def crossover(self, parent1, parent2):
         # 1. 隨機選擇一個交配點（範圍從1到物品數減一）
         crossover_point = random.randint(1, self.item_num - 1)
 
@@ -89,9 +92,12 @@ class GeneticAlgorithm:
             for p_index in range(self.particle_num):
                 for dim in range(self.dim):
                     for knapsack in range(self.knapsack_num):
-                        knapsack_fitness_values[p_index][dim][knapsack] = self.fitness_value(population[p_index][knapsack], knapsack, dim)
+                        knapsack_fitness_values[p_index][dim][knapsack] = self.fitness_value(
+                            population[p_index][knapsack], knapsack, dim)
 
-            self.fitness_values = np.array([np.sum([np.std((np.array(fitness[dim]) / np.array(self.max_weight[dim])).tolist(), ddof=0) for dim in range(self.dim)]) for fitness in knapsack_fitness_values])
+            self.fitness_values = np.array([np.sum(
+                [np.std((np.array(fitness[dim]) / np.array(self.max_weight[dim])).tolist(), ddof=0) for dim in
+                 range(self.dim)]) for fitness in knapsack_fitness_values])
             elite_parents = self.selection(population, self.fitness_values)
             new_population = []
             for i in range(self.elite_num):
@@ -107,12 +113,15 @@ class GeneticAlgorithm:
             for new_p_index in range(len(population)):
                 for dim in range(self.dim):
                     for new_knapsack in range(self.knapsack_num):
-                        new_knapsack_fitness_values[new_p_index][dim][new_knapsack] = self.fitness_value(population[new_p_index][new_knapsack], new_knapsack, dim)
+                        new_knapsack_fitness_values[new_p_index][dim][new_knapsack] = self.fitness_value(
+                            population[new_p_index][new_knapsack], new_knapsack, dim)
 
             for fitness in range(len(new_knapsack_fitness_values)):
                 new_knapsack_fitness_values[fitness] = self.check_fitness(new_knapsack_fitness_values[fitness])
 
-            fitness_values = np.array([np.sum([np.std((np.array(fitness[dim]) / np.array(self.max_weight[dim])).tolist(), ddof=0) for dim in range(self.dim)]) for fitness in new_knapsack_fitness_values])
+            fitness_values = np.array([np.sum(
+                [np.std((np.array(fitness[dim]) / np.array(self.max_weight[dim])).tolist(), ddof=0) for dim in
+                 range(self.dim)]) for fitness in new_knapsack_fitness_values])
             idx_to_keep = np.argsort(fitness_values)[:self.particle_num]
             population = [population[idx] for idx in idx_to_keep]
             self.best_fitness_list.append(np.min(self.fitness_values))
