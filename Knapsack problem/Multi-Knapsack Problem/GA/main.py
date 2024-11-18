@@ -5,11 +5,11 @@ from print_solution import print_solution
 import os
 
 
-def main(c, p, o, data_num, data_percent, max_iteration=100, crossover_rate=0.9, mutation_rate=0.1, elite_num=40,
+def main(knapsack, values, old_values, data_num, data_percent, max_iteration=100, crossover_rate=0.9, mutation_rate=0.1, elite_num=40,
          particle=100):
-    get_data = Get_data(c, p, o)
+    get_data = Get_data(knapsack, values, old_values)
 
-    data = Data_factory(data_num=data_num, data_percent=data_percent, func=get_data, txt_file_name=p)
+    data = Data_factory(data_num=data_num, data_percent=data_percent, func=get_data, txt_file_name=values)
 
     data.data()
 
@@ -27,4 +27,4 @@ def main(c, p, o, data_num, data_percent, max_iteration=100, crossover_rate=0.9,
     ga.show()
 
 
-main(particle=30, data_num=1000, data_percent=[0.5, 0.3, 0.5], c="knapsack.txt", p="values.txt", o="old_values.txt")
+main(particle=30, data_num=1000, data_percent=[0.5, 0.3, 0.5], knapsack="knapsack.txt", values="values.txt", old_values="old_values.txt")
