@@ -24,3 +24,24 @@ The instance data file for this problem contains the following:
 - **Number of items**: The total number of items to be distributed among the knapsacks.
 - **Knapsack capacities**: A list of capacities, where each capacity represents the maximum weight a knapsack can carry.
 - **Item weights**: A list of weights, where each weight represents the weight of an item.
+- **knapsacks.txt**:
+
+  |            | Dim_1 | Dim_2 | ... |
+  |------------|-------|-------|-----|
+  | knapsack_1 |       |       |     |
+  | knapsack_1 |       |       |     |
+  | ...        |       |       |     |
+- **values.txt**:
+
+  |          | Dim_1 | Dim_2 | ... |
+  |----------|-------|-------|-----|
+  | values_1 |       |       |     |
+  | values_1 |       |       |     |
+  | ...      |       |       |     |
+- **old_values.txt**:
+
+  |              | Dim_1 | Dim_2 | ... |
+  |--------------|-------|-------|-----|
+  | old_values_1 |       |       |     |
+  | old_values_1 |       |       |     |
+  | ...          |       |       |     |
