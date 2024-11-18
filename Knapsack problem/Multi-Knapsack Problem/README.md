@@ -16,6 +16,8 @@ The **Multi-Knapsack Problem** is a variant of the classic 0/1 Knapsack Problem.
 
 - The fitness value is determined based on the "low balance" of the knapsacks’ weight utilization, aiming to achieve a balanced distribution of weights across all knapsacks.
 
+---
+
 ## Data
 
 The instance data file for this problem contains the following:
@@ -25,6 +27,8 @@ The instance data file for this problem contains the following:
 - **Knapsack capacities**: A list of capacities, where each capacity represents the maximum weight a knapsack can carry.
 - **Knapsack used weights**: Knapsack used weights: A list of already used weights in each knapsack, indicating how much weight is currently occupied.
 - **Item weights**: A list of weights, where each weight represents the weight of an item.
+
+---
 
 ## TXT File Description
 
