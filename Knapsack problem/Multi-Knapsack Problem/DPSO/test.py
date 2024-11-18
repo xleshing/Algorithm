@@ -7,9 +7,9 @@ class Test:
         self.a = a
 
     def print_answer(self):
-        c = np.array(self.answer.answer()[0])
-        w = np.array(self.answer.answer()[1])
-        o = np.array(self.answer.answer()[2])
+        c = np.array(self.answer.get_data()[0])
+        w = np.array(self.answer.get_data()[1])
+        o = np.array(self.answer.get_data()[2])
 
         a = np.array(self.a)
         ans = []

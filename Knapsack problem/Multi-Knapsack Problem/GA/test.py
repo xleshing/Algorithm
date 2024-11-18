@@ -3,14 +3,14 @@ import numpy as np
 
 class Test:
     def __init__(self, sol, func, dim):
-        self.answer = func
+        self.get_data = func
         self.sol = sol
         self.dim = dim
 
     def print_answer(self):
-        c = np.array(self.answer.answer()[0])
-        p = np.array(self.answer.answer()[1])
-        o = np.array(self.answer.answer()[2])
+        c = np.array(self.get_data.get_data()[0])
+        p = np.array(self.get_data.get_data()[1])
+        o = np.array(self.get_data.get_data()[2])
 
         sol = np.array(self.sol)
         ans = []

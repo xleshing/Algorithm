@@ -5,13 +5,13 @@ class Data_factory:
     def __init__(self, data_num: int, data_percent: list, func, txt_file_name):
         # 原始數據
         a = func
-        self.original_data = a.answer()[0]
+        self.original_data = a.get_data()[0]
         self.data_num = data_num
         self.data_percent = data_percent
         self.dim = len(self.original_data)
         self.txt_file_name = txt_file_name
 
-    def get_data(self):
+    def data(self):
         data = []
         for dim in range(self.dim):
             # 計算原始數據的總和

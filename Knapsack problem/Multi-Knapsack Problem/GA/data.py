@@ -1,7 +1,7 @@
 import numpy as np
 
 
-class Answer:
+class Get_data:
     def __init__(self, c, p, o):
         with open(c, "r") as file:
             self.lines_c = file.readlines()
@@ -10,7 +10,7 @@ class Answer:
         with open(o, "r") as file:
             self.lines_o = file.readlines()
 
-    def answer(self):
+    def get_data(self):
         max_weight = [[float(each_line.strip()) for each_line in line.split()] for line in self.lines_c]
         values = [[float(each_line.strip()) for each_line in line.split()] for line in self.lines_p]
         old_values = [[float(each_line.strip()) for each_line in line.split()] for line in self.lines_o]
