@@ -1,5 +1,6 @@
 import numpy as np
 
+
 class Test:
     def __init__(self, sol, func, dim):
         self.answer = func
@@ -15,6 +16,7 @@ class Test:
         ans = []
         index = 0
         for each_sol in sol:
-            ans.append([["{:.5%}".format((np.sum(each_sol * p[dim]) + o[dim][index]) / c[dim][index]), np.sum(each_sol * p[dim]) + o[dim][index], c[dim][index]] for dim in range(self.dim)])
+            ans.append([["knapsack {}, label{}".format(index, dim), "{:.5%}".format((np.sum(each_sol * p[dim]) + o[dim][
+                index]) / c[dim][index])] for dim in range(self.dim)])
             index += 1
         print(np.array(ans))

@@ -138,5 +138,5 @@ class GeneticAlgorithm:
         plt.plot(self.best_fitness_list)
         plt.xlabel('Generation')
         plt.ylabel('Best Fitness')
-        plt.title('GA Loss Curve [{:.5f}]'.format(self.best_fitness))
+        plt.title('GA Best Fitness: [{:.5f}]'.format(self.best_fitness))
         plt.show()

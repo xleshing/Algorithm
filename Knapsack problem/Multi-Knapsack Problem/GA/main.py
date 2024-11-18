@@ -27,4 +27,4 @@ def main(c, p, o, data_num, data_percent, max_iteration=100, crossover_rate=0.9,
     ga.show()
 
 
-main(data_num=1000, data_percent=[0.5, 0.5, 0.5], c="p08_c.txt", p="p08_p.txt", o="p08_o.txt")
+main(particle=30, data_num=1000, data_percent=[0.5, 0.3, 0.5], c="p08_c.txt", p="p08_p.txt", o="p08_o.txt")
