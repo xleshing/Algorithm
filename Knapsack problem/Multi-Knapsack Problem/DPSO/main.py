@@ -20,4 +20,4 @@ def main(c, p, o, num_particle=100, max_iter=100):
     test.print_answer()
     optimizer.plot_curve()
 
-main(c="p08_c.txt", p="p08_p.txt", o="p08_o.txt")
+main(c="knapsack.txt", p="values.txt", o="old_values.txt")

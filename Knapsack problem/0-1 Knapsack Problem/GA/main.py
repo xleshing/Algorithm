@@ -5,7 +5,7 @@ import numpy as np
 
 class Main:
     def __init__(self):
-        self.answer = Answer("p08_c.txt", "p08_p.txt", "p08_w.txt", "p08_s.txt")
+        self.answer = Answer("knapsack.txt", "values.txt", "p08_w.txt", "p08_s.txt")
         self.ga = GeneticAlgorithm(values=self.answer.answer()[0], weight=self.answer.answer()[1],
                                    max_weight=self.answer.answer()[2])
         self.best_solution, self.best_fitness = self.ga.genetic_algorithm()

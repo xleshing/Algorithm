@@ -4,8 +4,8 @@ import numpy as np
 class Data_factory:
     def __init__(self, data_num: int, data_percent: list, func, txt_file_name):
         # 原始數據
-        a = func
-        self.original_data = a.get_data()[0]
+        get_data = func
+        self.original_data = get_data.get_data()[0]
         self.data_num = data_num
         self.data_percent = data_percent
         self.dim = len(self.original_data)
