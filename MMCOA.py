@@ -35,7 +35,7 @@ def mmco_evaluate_population(FOBJ, population):
 
 
 # -------------------------------------------------------------------
-# 子函式 3) 計算某群的文化傾向 (示例: odd/even 切換中位數 / 平均)
+# 子函式 3) 計算某群的文化傾向切換中位數
 # -------------------------------------------------------------------
 def mmco_compute_cultural_tendency(sub_pop):
     return np.median(sub_pop, axis=0)
