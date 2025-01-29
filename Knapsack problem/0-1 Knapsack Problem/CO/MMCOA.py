@@ -2,7 +2,7 @@ import numpy as np
 from data import Answer
 
 
-def mmco_initialize_population(n_groups, coyotes_per_group, D, weights, capacity):
+def mmco_initialize_population(n_groups, coyotes_per_group, d, weight, capacity):
     """
     初始化 0/1 背包問題的族群，確保總重量不超過背包容量。
 
@@ -21,16 +21,16 @@ def mmco_initialize_population(n_groups, coyotes_per_group, D, weights, capacity
     total_coyotes = n_groups * coyotes_per_group
 
     # 隨機初始化 0/1 背包解
-    population = np.random.randint(2, size=(total_coyotes, D))
+    population = np.random.randint(2, size=(total_coyotes, d))
 
     # 計算初始的總重量
-    total_weight = np.dot(population, weights)
+    total_weight = np.dot(population, weight)
 
     # 重新生成所有超重的解，直到符合約束
     while np.any(total_weight > capacity):
         invalid_indices = np.where(total_weight > capacity)[0]  # 找出超重的索引
-        population[invalid_indices] = np.random.randint(2, size=(len(invalid_indices), D))  # 重新生成
-        total_weight[invalid_indices] = np.dot(population[invalid_indices], weights)  # 更新重量
+        population[invalid_indices] = np.random.randint(2, size=(len(invalid_indices), d))  # 重新生成
+        total_weight[invalid_indices] = np.dot(population[invalid_indices], weight)  # 更新重量
 
     # 隨機分配群體
     indices = np.random.permutation(total_coyotes)
@@ -41,11 +41,11 @@ def mmco_initialize_population(n_groups, coyotes_per_group, D, weights, capacity
 
     return population, groups, population_age
 
-def mmco_evaluate_population(FOBJ, population):
+def mmco_evaluate_population(func, population):
     """
     回傳: fitness (shape=(N,))
     """
-    fitness = np.array([FOBJ(ind) for ind in population])
+    fitness = np.array([func(ind) for ind in population])
     return fitness
 
 
@@ -55,8 +55,7 @@ def mmco_compute_cultural_tendency(sub_pop):
     """
     return np.round(np.median(sub_pop, axis=0))  # 確保仍為 0 或 1
 
-def update_coyote(i, coyotes_per_group, sub_pop, alpha_coyote, cultural_tendency, D, FOBJ, sub_fit):
-    as_p = sub_pop[i, :].copy()
+def update_coyote(i, coyotes_per_group, sub_pop, alpha_coyote, cultural_tendency, d):
     qj1 = i  # 初始化為自己
     while qj1 == i:  # 當選到自己時，重新選擇
         qj1 = np.random.choice(coyotes_per_group)
@@ -66,38 +65,37 @@ def update_coyote(i, coyotes_per_group, sub_pop, alpha_coyote, cultural_tendency
 
     delta1 = alpha_coyote - sub_pop[qj1, :]
     delta2 = cultural_tendency - sub_pop[qj2, :]
-    # KA_1 = as_p + np.random.rand() * delta1 + np.random.rand() * delta2
-    # KA_1 = np.clip(KA_1, 0, 1).astype(int)
+    # ka_1 = as_p + np.random.rand() * delta1 + np.random.rand() * delta2
+    # ka_1 = np.clip(ka_1, 0, 1).astype(int)
 
-    KA_1 = np.where(np.random.rand(D) < 0.5, abs(delta1), abs(delta2))
+    ka_1 = np.where(np.random.rand(d) < 0.5, abs(delta1), abs(delta2))
 
     # 加權組合兩個影響方向
-    # KA_1 = np.round(np.random.rand(D) * abs(delta1) + np.random.rand(D) * abs(delta2)).astype(int)
-    # KA_1 = np.clip(KA_1, 0, 1).astype(int)
+    # ka_1 = np.round(np.random.rand(D) * abs(delta1) + np.random.rand(D) * abs(delta2)).astype(int)
+    # ka_1 = np.clip(ka_1, 0, 1).astype(int)
 
-    return KA_1
+    return ka_1
 
-def crossover(coyotes_per_group, D, sub_pop):
+def crossover(coyotes_per_group, d, sub_pop):
     # 選擇雙親
     parents_idx = np.random.choice(coyotes_per_group, 2, replace=False)
 
     # 設定 crossover mask & 突變 mask
-    mutation_prob = 1 / D
+    mutation_prob = 1 / d
     parent_prob = (1 - mutation_prob) / 2
 
     # 產生隨機遮罩來決定基因來自父母 1、父母 2 或突變
-    pdr = np.random.permutation(D)
-    p1_mask = np.zeros(D, dtype=bool)
-    p2_mask = np.zeros(D, dtype=bool)
-    mut_mask = np.zeros(D, dtype=bool)
+    pdr = np.random.permutation(d)
+    p1_mask = np.zeros(d, dtype=bool)
+    p2_mask = np.zeros(d, dtype=bool)
 
     # 確保至少有 1 個基因來自父母 1，1 個來自父母 2
     p1_mask[pdr[0]] = True
     p2_mask[pdr[1]] = True
 
     # 其他維度的機率分配
-    if D > 2:
-        rand_vals = np.random.rand(D - 2)
+    if d > 2:
+        rand_vals = np.random.rand(d - 2)
         p1_mask[pdr[2:]] = (rand_vals < parent_prob)   # 來自父母 1
         p2_mask[pdr[2:]] = (rand_vals > (1 - parent_prob))  # 來自父母 2
 
@@ -107,13 +105,13 @@ def crossover(coyotes_per_group, D, sub_pop):
     # 產生 pup (後代)
     pup = (p1_mask * sub_pop[parents_idx[0], :]
            + p2_mask * sub_pop[parents_idx[1], :]
-           + mut_mask * np.random.randint(2, size=D))  # 突變產生 0 或 1
+           + mut_mask * np.random.randint(2, size=d))  # 突變產生 0 或 1
 
     return pup
 
 
 def mmco_update_group(
-        FOBJ, population, fitness, group_indices, D, population_age, weight
+        func, population, fitness, group_indices, d, population_age, weight
 ):
     sub_pop = population[group_indices, :].copy()
     sub_fit = fitness[group_indices].copy()
@@ -129,32 +127,32 @@ def mmco_update_group(
 
     # (3) 更新: 社會行為
     for i in range(coyotes_per_group):
-        KA_1 = update_coyote(
-            i, coyotes_per_group, sub_pop, alpha_coyote, cultural_tendency, D, FOBJ, sub_fit
+        ka_1 = update_coyote(
+            i, coyotes_per_group, sub_pop, alpha_coyote, cultural_tendency, d
         )
-        KA_1_weight = np.dot(KA_1, weight)
-        while KA_1_weight > capacity:
-            KA_1 = update_coyote(
-                i, coyotes_per_group, sub_pop, alpha_coyote, cultural_tendency, D, FOBJ, sub_fit
+        ka_1_weight = np.dot(ka_1, weight)
+        while ka_1_weight > capacity:
+            ka_1 = update_coyote(
+                i, coyotes_per_group, sub_pop, alpha_coyote, cultural_tendency, d
             )
-            KA_1_weight = np.dot(KA_1, weight)
-        KA_1_fit = FOBJ(KA_1)
-        if KA_1_fit > sub_fit[i]:
-            sub_pop[i, :] = KA_1
-            sub_fit[i] = KA_1_fit
+            ka_1_weight = np.dot(ka_1, weight)
+        ka_1_fit = func(ka_1)
+        if ka_1_fit > sub_fit[i]:
+            sub_pop[i, :] = ka_1
+            sub_fit[i] = ka_1_fit
 
     # (4) Pup 生產 (Crossover)
     pup = crossover(
-        coyotes_per_group, D, sub_pop
+        coyotes_per_group, d, sub_pop
     )
     pup_weight = np.dot(pup, weight)
     while np.any(pup_weight > capacity):
         pup = crossover(
-            coyotes_per_group, D, sub_pop
+            coyotes_per_group, d, sub_pop
         )
         pup_weight = np.dot(pup, weight)
 
-    pup_fit = FOBJ(pup)
+    pup_fit = func(pup)
 
     # 替換最老且最差的個體
     candidate_mask = sub_fit < pup_fit
@@ -199,16 +197,16 @@ def mmco_coyote_exchange(groups, p_leave):
 # -------------------------------------------------------------------
 # 主函式: MMCO_main
 # -------------------------------------------------------------------
-def MMCO_main(FOBJ,
+def MMCO_main(func,
               n_groups, coyotes_per_group,
-              D,
+              d,
               weight,
               capacity,
               max_iter,
               p_leave):
     # 1) 初始化
-    population, groups, population_age = mmco_initialize_population(n_groups, coyotes_per_group, D, weight, capacity)
-    fitness = mmco_evaluate_population(FOBJ, population)
+    population, groups, population_age = mmco_initialize_population(n_groups, coyotes_per_group, d, weight, capacity)
+    fitness = mmco_evaluate_population(func, population)
 
     # 2) 找初始最佳
     best_idx = np.argmin(fitness)
@@ -222,7 +220,7 @@ def MMCO_main(FOBJ,
         for g in range(n_groups):
             group_indices = groups[g, :]
             population, fitness, population_age = mmco_update_group(
-                FOBJ, population, fitness, group_indices, D, population_age, weight
+                func, population, fitness, group_indices, d, population_age, weight
             )
 
         # (b) 群間交換 (脫離狼群)
@@ -250,7 +248,7 @@ if __name__ == "__main__":
 
     values = answer.answer()[0]
 
-    weight = answer.answer()[1]
+    weights = answer.answer()[1]
 
     capacity = answer.answer()[2]
 
@@ -258,11 +256,11 @@ if __name__ == "__main__":
         return np.sum(x * values)
 
     best_sol, best_fit, curve = MMCO_main(
-        FOBJ=my_objective,
+        func=my_objective,
         n_groups=10,
         coyotes_per_group=10,
-        D=len(values),
-        weight=weight,
+        d=len(values),
+        weight=weights,
         capacity=capacity,
         max_iter=100,
         p_leave=0.02,  # 群間交換機
@@ -279,5 +277,3 @@ if __name__ == "__main__":
     plt.title("MMCO_Enhance with Crossover & Group Exchange")
     plt.grid(True)
     plt.show()
-
-
