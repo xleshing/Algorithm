@@ -1,8 +1,7 @@
 import numpy as np
-from data import Answer
 
 
-def mmco_initialize_population(n_groups, coyotes_per_group, d, weight, capacity):
+def mmco_initialize_population(n_groups, coyotes_per_group, d, value, weight, capacity):
     """
     初始化 0/1 背包問題的族群，確保總重量不超過背包容量。
 
@@ -24,13 +23,20 @@ def mmco_initialize_population(n_groups, coyotes_per_group, d, weight, capacity)
     population = np.random.randint(2, size=(total_coyotes, d))
 
     # 計算初始的總重量
-    total_weight = np.dot(population, weight)
+    total_value = np.dot(population, value)  # total resource after pop some node
 
     # 重新生成所有超重的解，直到符合約束
-    while np.any(total_weight > capacity):
-        invalid_indices = np.where(total_weight > capacity)[0]  # 找出超重的索引
-        population[invalid_indices] = np.random.randint(2, size=(len(invalid_indices), d))  # 重新生成
-        total_weight[invalid_indices] = np.dot(population[invalid_indices], weight)  # 更新重量
+    while True:
+        if np.any([np.sum(abs(coyote) == 0) == d for coyote in population]):
+            invalid_indices = np.where([np.sum(abs(coyote) == 0) == d for coyote in population])[0]  # 找出超重的索引
+            population[invalid_indices] = np.random.randint(2, size=(len(invalid_indices), d))  # 重新生成
+            total_value[invalid_indices] = np.dot(population[invalid_indices], value)  # 更新重量
+        elif np.any(weight / total_value * 100 > capacity):
+            invalid_indices = np.where(weight / total_value * 100 > capacity)[0]  # 找出超重的索引
+            population[invalid_indices] = np.random.randint(2, size=(len(invalid_indices), d))  # 重新生成
+            total_value[invalid_indices] = np.dot(population[invalid_indices], value)  # 更新重量
+        else:
+            break
 
     # 隨機分配群體
     indices = np.random.permutation(total_coyotes)
@@ -40,14 +46,6 @@ def mmco_initialize_population(n_groups, coyotes_per_group, d, weight, capacity)
     population_age = np.zeros(total_coyotes, dtype=int)
 
     return population, groups, population_age
-
-def mmco_evaluate_population(func, population):
-    """
-    回傳: fitness (shape=(N,))
-    """
-    fitness = np.array([func(ind) for ind in population])
-    return fitness
-
 
 def mmco_compute_cultural_tendency(sub_pop):
     """
@@ -111,7 +109,7 @@ def crossover(coyotes_per_group, d, sub_pop):
 
 
 def mmco_update_group(
-        func, population, fitness, group_indices, d, population_age, weight
+        func, population, fitness, group_indices, d, population_age, value, weight, capacity
 ):
     sub_pop = population[group_indices, :].copy()
     sub_fit = fitness[group_indices].copy()
@@ -130,28 +128,56 @@ def mmco_update_group(
         ka_1 = update_coyote(
             i, coyotes_per_group, sub_pop, alpha_coyote, cultural_tendency, d
         )
-        ka_1_weight = np.dot(ka_1, weight)
-        while ka_1_weight > capacity:
-            ka_1 = update_coyote(
-                i, coyotes_per_group, sub_pop, alpha_coyote, cultural_tendency, d
-            )
-            ka_1_weight = np.dot(ka_1, weight)
-        ka_1_fit = func(ka_1)
-        if ka_1_fit > sub_fit[i]:
-            sub_pop[i, :] = ka_1
-            sub_fit[i] = ka_1_fit
+        ka_1_value = np.dot(ka_1, value)
+        for n in range(100):
+            if np.sum(abs(ka_1) == 0) == d:
+                ka_1 = update_coyote(
+                    i, coyotes_per_group, sub_pop, alpha_coyote, cultural_tendency, d
+                )
+                ka_1_value = np.dot(ka_1, value)
+            elif np.any(weight / ka_1_value * 100 > capacity):
+                ka_1 = update_coyote(
+                    i, coyotes_per_group, sub_pop, alpha_coyote, cultural_tendency, d
+                )
+                ka_1_value = np.dot(ka_1, value)
+            else:
+                break
+
+        if np.sum(abs(ka_1) == 0) == d:
+            pass
+        elif np.any(weight / ka_1_value * 100 > capacity):
+            pass
+        else:
+            ka_1_fit = func(ka_1)
+
+            if ka_1_fit > sub_fit[i]:
+                sub_pop[i, :] = ka_1
+                sub_fit[i] = ka_1_fit
 
     # (4) Pup 生產 (Crossover)
     pup = crossover(
         coyotes_per_group, d, sub_pop
     )
-    pup_weight = np.dot(pup, weight)
-    while np.any(pup_weight > capacity):
-        pup = crossover(
-            coyotes_per_group, d, sub_pop
-        )
-        pup_weight = np.dot(pup, weight)
+    pup_value = np.dot(pup, value)
+    while True:
+        if np.sum(abs(pup) == 0) == d:
+            pup = crossover(
+                coyotes_per_group, d, sub_pop
+            )
+            pup_value = np.dot(pup, value)
+        elif np.any(weight / pup_value * 100 > capacity):
+            pup = crossover(
+                coyotes_per_group, d, sub_pop
+            )
+            pup_value = np.dot(pup, value)
+        else:
+            break
 
+    # if np.sum(abs(pup) == 0) == d:
+    #     pass
+    # elif np.any(weight / pup * 100 > capacity):
+    #     pass
+    # else:
     pup_fit = func(pup)
 
     # 替換最老且最差的個體
@@ -193,23 +219,20 @@ def mmco_coyote_exchange(groups, p_leave):
 
     return groups
 
-
-# -------------------------------------------------------------------
-# 主函式: MMCO_main
-# -------------------------------------------------------------------
 def MMCO_main(func,
               n_groups, coyotes_per_group,
               d,
+              value,
               weight,
               capacity,
               max_iter,
               p_leave):
     # 1) 初始化
-    population, groups, population_age = mmco_initialize_population(n_groups, coyotes_per_group, d, weight, capacity)
-    fitness = mmco_evaluate_population(func, population)
+    population, groups, population_age = mmco_initialize_population(n_groups, coyotes_per_group, d, value, weight, capacity)
+    fitness = np.array([func(coyote) for coyote in population])
 
     # 2) 找初始最佳
-    best_idx = np.argmin(fitness)
+    best_idx = np.argmax(fitness)
     best_solution = population[best_idx].copy()
     best_fitness = fitness[best_idx]
     convergence = [best_fitness]
@@ -220,7 +243,7 @@ def MMCO_main(func,
         for g in range(n_groups):
             group_indices = groups[g, :]
             population, fitness, population_age = mmco_update_group(
-                func, population, fitness, group_indices, d, population_age, weight
+                func, population, fitness, group_indices, d, population_age, value, weight, capacity
             )
 
         # (b) 群間交換 (脫離狼群)
@@ -240,36 +263,39 @@ def MMCO_main(func,
 
     return best_solution, best_fitness, convergence
 
-
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
 
-    answer = Answer("p08_c.txt", "p08_p.txt", "p08_w.txt", "p08_s.txt")
+    values = [1000, 1000, 200, 500, 2000, 100, 150, 300, 600, 700]  # each node resource
 
-    values = answer.answer()[0]
+    weight = np.sum([50, 500, 100, 250, 1000, 50, 75, 150, 350])  # each node resource usage
 
-    weights = answer.answer()[1]
-
-    capacity = answer.answer()[2]
+    capacity = 80  # SLA
 
     def my_objective(x):
-        return np.sum(x * values)
+        # if np.sum(abs(x) == 0) == len(x):
+        #     return 0
+        # elif weight / np.dot(x, values) * 100 > capacity:
+        #     return 0
+        # else:
+        #     return weight / np.dot(x, values) * 100
+        return weight / np.dot(x, values) * 100
 
     best_sol, best_fit, curve = MMCO_main(
         func=my_objective,
-        n_groups=10,
-        coyotes_per_group=10,
+        n_groups=5,
+        coyotes_per_group=5,
         d=len(values),
-        weight=weights,
+        value=values,
+        weight=weight,
         capacity=capacity,
         max_iter=100,
-        p_leave=0.02,  # 群間交換機
+        p_leave=0.1,
     )
 
     print("Best Solution =", best_sol)
     print("Best Fitness  =", best_fit)
-    print(answer.answer()[3])
-    print(np.sum(answer.answer()[3] * values))
+    print(weight / np.dot(best_sol, values) * 100)
 
     plt.plot(curve)
     plt.xlabel("Iteration")
