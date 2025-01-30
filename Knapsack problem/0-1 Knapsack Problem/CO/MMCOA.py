@@ -278,9 +278,10 @@ class Algorithm:
             convergence.append(best_fitness)
 
         if (self.weight / np.dot(self.original_status, self.value) * 100 < best_fitness <= self.capacity or
-                best_fitness <= self.capacity < self.weight / np.dot(self.original_status, self.value) * 100):
+                -np.inf != best_fitness <= self.capacity < self.weight / np.dot(self.original_status, self.value) * 100):
             pass
         else:
+            print("Warning")
             best_solution = self.original_status
             best_fitness = self.func(best_solution)  # re-calculate fitness with original status
 
@@ -292,9 +293,9 @@ if __name__ == "__main__":
 
     v = [1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, ]  # each node resource
 
-    w = np.sum([500, 500, 500, 500, 500, 500, 500, 500, 500, 500, ])  # each node resource usage
+    w = np.sum([0, 500, 500, 500, 500, 500, 500, 500, 500, 500, ])  # each node resource usage
 
-    c = 80  # SLA
+    c = 60  # SLA
 
     algorithm = Algorithm(
         turn_node_on=0,
@@ -307,7 +308,7 @@ if __name__ == "__main__":
         p_leave=0.1,
         max_iter=100,
         max_delay=100,
-        original_status=[1, 0, 1, 1, 0, 1, 0, 1, 1, 1, ]
+        original_status=[1, 1, 1, 0, 0, 1, 0, 1, 1, 1, ]
     )
 
     best_sol, best_fit, curve = algorithm.MMCO_main()
