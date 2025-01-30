@@ -3,6 +3,7 @@ import json
 import time
 from MMCOA import Algorithm
 import numpy as np
+import argparse
 
 
 def convert_memory_to_mib(mem_str):
@@ -164,4 +165,9 @@ def adjust_nodes(capacity, active_range, max_delay):
 
 
 if __name__ == "__main__":
-    adjust_nodes(80, 10, 100)
+    parser = argparse.ArgumentParser(description="Kubernetes 節點擴充器")
+    parser.add_argument("--capacity", type=float, default=80.0, help="目標資源使用率 預設80(%%)")
+    parser.add_argument("--active_range", type=float, default=10.0, help="上下限空間 預設10(%%)")
+    parser.add_argument("--max_calculate_times", type=int, default=100, help="最大計算次數 預設100")
+    args = parser.parse_args()
+    adjust_nodes(args.capacity, args.active_range, args.max_calculate_times)
