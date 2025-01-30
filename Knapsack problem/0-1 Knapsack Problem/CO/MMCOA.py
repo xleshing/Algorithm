@@ -285,7 +285,7 @@ class Algorithm:
             best_solution = self.original_status
             best_fitness = self.func(best_solution)  # re-calculate fitness with original status
 
-        return best_solution, best_fitness, convergence
+        return np.array(best_solution), best_fitness, convergence
 
 
 if __name__ == "__main__":
