@@ -5,86 +5,163 @@ from MMCOA import Algorithm
 import numpy as np
 
 
-### Step 1: 取得目前 Pod 使用率 ###
+def convert_memory_to_mib(mem_str):
+    """將記憶體字串 (如 '256Mi', '1Gi', '512Ki', '100M') 轉換為 MiB"""
+    mem_str = mem_str.strip()  # 移除空格
+    if mem_str.endswith("Mi"):
+        return int(mem_str[:-2])  # 直接轉換為 MiB
+    elif mem_str.endswith("Gi"):
+        return int(mem_str[:-2]) * 1024  # Gi 轉換成 MiB
+    elif mem_str.endswith("Ki"):
+        return int(mem_str[:-2]) // 1024  # Ki 轉換成 MiB
+    elif mem_str.endswith("M"):  # 兼容 '100M' 這種寫法
+        return int(mem_str[:-1])  # 假設 100M = 100Mi
+    elif mem_str.endswith("G"):  # 兼容 '1G' 這種寫法
+        return int(mem_str[:-1]) * 1024  # 1G = 1024Mi
+    else:
+        try:
+            return int(mem_str)  # 嘗試直接轉換
+        except ValueError:
+            print(f"⚠️ 無法解析記憶體數值: {mem_str}")
+            return 0  # 如果格式錯誤，返回 0
+
+
+# 取得目前 Pod 使用率
 def get_pod_usage():
-    """ 取得所有 Pod 使用的 CPU 和記憶體總和 """
-    cmd = "kubectl top pod --all-namespaces --no-headers | awk '{print $2, $3}'"
+    """ 取得所有 **非 Master 節點** 上的 Pod 的 CPU 和記憶體使用率 """
+    cmd = "kubectl get pods --all-namespaces -o json"
     result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
 
-    total_cpu = 0
-    total_mem = 0
-    for line in result.stdout.strip().split("\n"):
-        if line:
-            cpu, mem = line.split()
-            total_cpu += int(cpu.replace("m", "")) / 1000  # 轉換為核心數
-            total_mem += int(mem.replace("Mi", ""))  # 轉換為 MB
-    return total_cpu, total_mem
+    total_cpu = 0  # 單位：mCPU (1 CPU = 1000m)
+    total_mem = 0  # 單位：MiB
+
+    data = json.loads(result.stdout)
+
+    # 取得 Master 節點名稱（避免計入）
+    master_nodes = set(get_node_capacity()[0])  # 取得非 Master 節點
+    all_nodes = set([item["metadata"]["name"] for item in data["items"]])
+    master_nodes = all_nodes - master_nodes  # 取得 Master 節點
+
+    for pod in data["items"]:
+        try:
+            node_name = pod["spec"].get("nodeName", "")
+            if node_name in master_nodes:
+                continue  # 跳過 Master 節點上的 Pod
+
+            containers = pod["spec"]["containers"]
+            for container in containers:
+                resources = container.get("resources", {})
+                requests = resources.get("requests", {})
+
+                cpu = requests.get("cpu", "0m")
+                mem = requests.get("memory", "0Mi")
+
+                # 轉換 CPU（mCPU）
+                if cpu.endswith("m"):
+                    cpu = int(cpu[:-1]) / 1000
+                else:
+                    cpu = int(cpu)  # 無 "m" 代表完整核心數
+
+                # 轉換記憶體（MiB）
+                mem = convert_memory_to_mib(mem)
+
+                total_cpu += cpu
+                total_mem += mem
+        except KeyError:
+            continue  # 如果 Pod 沒有 CPU/Memory 指標，則跳過
+
+    return total_cpu, total_mem  # CPU 轉換成核心數
 
 
-### Step 2: 取得目前節點資源上限 ###
+# 取得目前節點資源上限
 def get_node_capacity():
-    """ 取得所有節點的 CPU/記憶體上限 """
+    """ 取得所有 **非 Master** 節點的 CPU/記憶體上限，並判斷是否在休眠狀態（cordon 狀態）"""
     cmd = "kubectl get nodes -o json"
     result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
 
-    nodes = {}
+    nodes = []       # 節點名稱
+    values = []      # 節點資源 (CPU, Memory)
+    status = []      # 0 = 休眠, 1 = 可用 (cordon 狀態)
+
     data = json.loads(result.stdout)
-    # for item in data["items"]:
-    #     name = item["metadata"]["name"]
-    #     capacity = item["status"]["capacity"]
-    #     cpu_limit = int(capacity["cpu"])  # 核心數
-    #     mem_limit = int(capacity["memory"].replace("Ki", "")) // 1024  # 轉換為 MB
-    #     nodes[name] = (cpu_limit, mem_limit)
     for item in data["items"]:
         name = item["metadata"]["name"]
+
+        # 檢查是否為 Master 節點
+        labels = item["metadata"].get("labels", {})
+        taints = item["spec"].get("taints", [])
+
+        is_master = "node-role.kubernetes.io/control-plane" in labels
+        # has_no_schedule = any(t["effect"] == "NoSchedule" for t in taints)
+
+        if is_master:
+            print(f"⚠️ 跳過 Master 節點: {name}")
+            continue  # 跳過 Master 節點
+
+        # 取得 CPU/Memory 上限
         capacity = item["status"]["capacity"]
         cpu_limit = int(capacity["cpu"])  # 核心數
-        nodes[name] = cpu_limit
-    return nodes
+        mem_limit = int(capacity["memory"].replace("Ki", "")) // 1024  # 轉換為 MiB
+
+        # 檢查是否是 "休眠" 狀態（是否被 cordon）
+        unschedulable = item["spec"].get("unschedulable", False)
+        node_status = 0 if unschedulable else 1  # 0 = 休眠, 1 = 可用
+
+        nodes.append(name)
+        # values.append((cpu_limit, mem_limit))
+        values.append(cpu_limit)
+        status.append(node_status)
+
+    return nodes, values, status  # 回傳 (節點名稱, 資源上限, 休眠狀態)
 
 
-### Step 4: 根據演算法輸出調整節點狀態 ###
-def adjust_nodes(capacity, max_delay):
+# 根據演算法輸出調整節點狀態
+def adjust_nodes(capacity, active_range, max_delay):
+    turn_node_on = 0
     pod_cpu, pod_mem = get_pod_usage()
-    nodes = get_node_capacity()
+    node_list, values, node_status = get_node_capacity()
 
     weight = [pod_cpu, pod_mem]  # 目前總負載
-    values = [cpu for cpu in nodes.values()]  # 各 Node 限制
 
-    node_list = list(nodes.keys())  # 節點名稱列表
-    turn_node_on = 0
+    print("所有pod總消耗（核）：", weight[0], "所有可找到 node：", node_list, "各 node CPU 上限（核）：", values, "目前總負載（％）：", weight[0] / np.dot(node_status, values) * 100)
 
-    if weight[0] / np.sum(values) * 100 > capacity:
-        turn_node_on = 1
+    if weight[0] / np.dot(node_status, values) * 100 + active_range < capacity or weight[0] / np.dot(node_status, values) * 100 > capacity:
 
-    algorithm = Algorithm(
-        turn_node_on,
-        d=len(values),
-        value=values,
-        weight=weight,
-        capacity=capacity,
-        coyotes_per_group=5,
-        n_groups=5,
-        p_leave=0.001,
-        max_iter=100,
-        max_delay=max_delay
-    )
-    best_sol, best_fit, curve = algorithm.MMCO_main()
+        if weight[0] / np.dot(np.ones_like(node_status), values) * 100 > capacity:
+            print(f"資源過低，請調整目標值（目標值：{capacity} %，如果node全開之集群負載：{weight[0] / np.dot(np.ones_like(node_status), values) * 100} %）")
+        else:
+            algorithm = Algorithm(
+                turn_node_on,
+                d=len(values),
+                value=values,
+                weight=weight[0],
+                capacity=capacity,
+                coyotes_per_group=5,
+                n_groups=5,
+                p_leave=0.001,
+                max_iter=100,
+                max_delay=max_delay,
+                original_status=node_status
+            )
+            best_sol, best_fit, curve = algorithm.MMCO_main()
 
-    if best_fit > capacity:
-        print("無法以目標值調整集群，請修改目標值或增加Delay")
-    else:
-        decision = best_sol
-        print(decision)
-        for i, node in enumerate(node_list):
-            if decision[i] == 0:  # 如果該節點應該關閉
-                print(f"讓節點 {node} 進入睡眠模式")
-                # subprocess.run(f"kubectl drain {node} --ignore-daemonsets --delete-emptydir-data", shell=True)
-                # subprocess.run(f"kubectl cordon {node}", shell=True)
-            elif decision[i] == 1:  # 如果該節點應該啟用
-                print(f"喚醒節點 {node}")
-                # subprocess.run(f"kubectl uncordon {node}", shell=True)
+            if best_sol.tolist() == node_status:
+                print("目前已是最佳或找不到最佳，保持原狀態，或修改目標值與Max Calculate times")
+            else:
+                decision = best_sol
+                for i, node in enumerate(node_list):
+                    if decision[i] == 0 and node_status[i] == 1:  # 需要關閉且目前是可用狀態
+                        print(f"讓節點 {node} 進入睡眠模式")
+                        subprocess.run(f"kubectl drain {node} --ignore-daemonsets --delete-emptydir-data", shell=True)
+                        subprocess.run(f"kubectl cordon {node}", shell=True)
+
+                    elif decision[i] == 1 and node_status[i] == 0:  # 需要開啟且目前是休眠狀態
+                        print(f"喚醒節點 {node}")
+                        subprocess.run(f"kubectl uncordon {node}", shell=True)
+
+                print("最佳解：", decision)
+                print("目前總負載（％）：", weight[0] / np.dot(decision, values) * 100)
 
 
 if __name__ == "__main__":
-    adjust_nodes(80, 100)
+    adjust_nodes(80, 10, 100)

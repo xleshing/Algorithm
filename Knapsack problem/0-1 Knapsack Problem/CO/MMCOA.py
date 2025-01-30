@@ -3,7 +3,8 @@ import numpy as np
 
 class Algorithm:
 
-    def __init__(self, turn_node_on, d, value, weight, capacity, coyotes_per_group, n_groups, p_leave, max_iter, max_delay):
+    def __init__(self, turn_node_on, d, value, weight, capacity, coyotes_per_group, n_groups, p_leave, max_iter,
+                 max_delay, original_status):
         self.d = d
         self.value = value
         self.weight = weight
@@ -14,6 +15,7 @@ class Algorithm:
         self.max_iter = max_iter
         self.turn_node_on = turn_node_on
         self.max_delay = max_delay
+        self.original_status = original_status
 
     def func(self, x):
         return self.weight / np.dot(x, self.value) * 100
@@ -111,7 +113,7 @@ class Algorithm:
         # 其他維度的機率分配
         if self.d > 2:
             rand_vals = np.random.rand(self.d - 2)
-            p1_mask[pdr[2:]] = (rand_vals < parent_prob)   # 來自父母 1
+            p1_mask[pdr[2:]] = (rand_vals < parent_prob)  # 來自父母 1
             p2_mask[pdr[2:]] = (rand_vals > (1 - parent_prob))  # 來自父母 2
 
         # 剩下沒被分配的基因 (來自突變)
@@ -171,41 +173,42 @@ class Algorithm:
                     sub_fit[i] = ka_1_fit
 
         # (4) Pup 生產 (Crossover)
-        pup = self.crossover(
-            sub_pop
-        )
-        pup_value = np.dot(pup, self.value)
-        for n in range(self.max_delay):
+        if self.d > 1:
+            pup = self.crossover(
+                sub_pop
+            )
+            pup_value = np.dot(pup, self.value)
+            for n in range(self.max_delay):
+                if np.sum(abs(pup) == 0) == self.d:
+                    pup = self.crossover(
+                        sub_pop
+                    )
+                    pup_value = np.dot(pup, self.value)
+                elif np.any(self.weight / pup_value * 100 > self.capacity):
+                    pup = self.crossover(
+                        sub_pop
+                    )
+                    pup_value = np.dot(pup, self.value)
+                else:
+                    break
+
             if np.sum(abs(pup) == 0) == self.d:
-                pup = self.crossover(
-                    sub_pop
-                )
-                pup_value = np.dot(pup, self.value)
+                pass
             elif np.any(self.weight / pup_value * 100 > self.capacity):
-                pup = self.crossover(
-                    sub_pop
-                )
-                pup_value = np.dot(pup, self.value)
+                pass
             else:
-                break
+                pup_fit = self.func(pup)
 
-        if np.sum(abs(pup) == 0) == self.d:
-            pass
-        elif np.any(self.weight / pup_value * 100 > self.capacity):
-            pass
-        else:
-            pup_fit = self.func(pup)
+                # 替換最老且最差的個體
+                candidate_mask = sub_fit < pup_fit
+                if np.any(candidate_mask):
+                    candidate_indices = np.where(candidate_mask)[0]
+                    oldest_idx = np.argmin(sub_age[candidate_indices])  # 找最老的
+                    to_replace = candidate_indices[oldest_idx]
 
-            # 替換最老且最差的個體
-            candidate_mask = sub_fit < pup_fit
-            if np.any(candidate_mask):
-                candidate_indices = np.where(candidate_mask)[0]
-                oldest_idx = np.argmin(sub_age[candidate_indices])  # 找最老的
-                to_replace = candidate_indices[oldest_idx]
-
-                sub_pop[to_replace, :] = pup
-                sub_fit[to_replace] = pup_fit
-                sub_age[to_replace] = 0  # 替換後年齡歸 0
+                    sub_pop[to_replace, :] = pup
+                    sub_fit[to_replace] = pup_fit
+                    sub_age[to_replace] = 0  # 替換後年齡歸 0
 
         population[group_indices, :] = sub_pop
         fitness[group_indices] = sub_fit
@@ -271,16 +274,21 @@ class Algorithm:
 
             convergence.append(best_fitness)
 
+        if best_fitness > self.capacity or best_fitness <= np.dot(self.original_status, self.value):
+            best_solution = self.original_status
+            best_fitness = self.func(best_solution)  # re-calculate fitness with original status
+
         return best_solution, best_fitness, convergence
+
 
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
 
-    v = [1000, 1000, 200, 500, 2000, 100, 150, 300, 600, 700]  # each node resource
+    v = [1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, ]  # each node resource
 
-    w = np.sum([1000, 1000, 200, 500, 2000, 100, 150, 0, 0, 0])  # each node resource usage
+    w = np.sum([500, 500, 500, 500, 500, 500, 500, 500, 500, 500, ])  # each node resource usage
 
-    c = 60  # SLA
+    c = 40  # SLA
 
     algorithm = Algorithm(
         turn_node_on=0,
@@ -292,7 +300,9 @@ if __name__ == "__main__":
         n_groups=5,
         p_leave=0.1,
         max_iter=100,
-        max_delay=100)
+        max_delay=100,
+        original_status=[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, ]
+    )
 
     best_sol, best_fit, curve = algorithm.MMCO_main()
 
