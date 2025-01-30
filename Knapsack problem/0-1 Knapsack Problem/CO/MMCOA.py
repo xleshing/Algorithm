@@ -18,7 +18,10 @@ class Algorithm:
         self.original_status = original_status
 
     def func(self, x):
-        return self.weight / np.dot(x, self.value) * 100
+        if np.any(self.weight / np.dot(x, self.value) * 100 > self.capacity):
+            return -np.inf
+        else:
+            return self.weight / np.dot(x, self.value) * 100
 
     def mmco_initialize_population(self):
         """
@@ -44,7 +47,7 @@ class Algorithm:
         # 計算初始的總重量
         total_value = np.dot(population, self.value)  # total resource after pop some node
 
-        # 重新生成所有超重的解，直到符合約束
+        # 重新生成所有超重的解
         for n in range(self.max_delay):
             if np.any([np.sum(abs(coyote) == 0) == self.d for coyote in population]):
                 invalid_indices = np.where([np.sum(abs(coyote) == 0) == self.d for coyote in population])[0]  # 找出超重的索引
@@ -274,7 +277,10 @@ class Algorithm:
 
             convergence.append(best_fitness)
 
-        if best_fitness > self.capacity or best_fitness <= np.dot(self.original_status, self.value):
+        if (self.weight / np.dot(self.original_status, self.value) * 100 < best_fitness <= self.capacity or
+                best_fitness <= self.capacity < self.weight / np.dot(self.original_status, self.value) * 100):
+            pass
+        else:
             best_solution = self.original_status
             best_fitness = self.func(best_solution)  # re-calculate fitness with original status
 
@@ -288,7 +294,7 @@ if __name__ == "__main__":
 
     w = np.sum([500, 500, 500, 500, 500, 500, 500, 500, 500, 500, ])  # each node resource usage
 
-    c = 40  # SLA
+    c = 80  # SLA
 
     algorithm = Algorithm(
         turn_node_on=0,
@@ -301,7 +307,7 @@ if __name__ == "__main__":
         p_leave=0.1,
         max_iter=100,
         max_delay=100,
-        original_status=[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, ]
+        original_status=[1, 0, 1, 1, 0, 1, 0, 1, 1, 1, ]
     )
 
     best_sol, best_fit, curve = algorithm.MMCO_main()
