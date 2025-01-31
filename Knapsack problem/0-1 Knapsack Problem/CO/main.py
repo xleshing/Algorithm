@@ -162,8 +162,9 @@ def adjust_nodes(capacity, active_range, max_delay):
     if weight[0] / np.dot(node_status, values) * 100 + active_range < capacity or weight[0] / np.dot(node_status, values) * 100 > capacity:
         if weight[0] / np.dot(np.ones_like(node_status), values) * 100 > capacity:
             logger.warning(f"Not enough resources, will activate all node（Target Value：{capacity} %，The Cluster Load after activate all node：{weight[0] / np.dot(np.ones_like(node_status), values) * 100} %）")
-            for node in node_list:
-                uncordon_node(node)  # 使用 `uncordon` API
+            for i, node in enumerate(node_list):
+                if node_status[i] == 0:
+                    uncordon_node(node)  # 使用 `uncordon` API
             logger.info(f"Nodes Status：{np.ones_like(node_list, dtype=int).tolist()}, Cluster Load：{weight[0] / np.dot(np.ones_like(node_list, dtype=int).tolist(), values) * 100}%")
             logger.info("----")
         else:
