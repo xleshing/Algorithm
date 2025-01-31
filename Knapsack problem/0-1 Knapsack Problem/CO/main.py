@@ -173,7 +173,7 @@ def adjust_nodes(capacity, active_range, max_delay):
                 d=len(values),
                 value=values,
                 weight=weight[0],
-                capacity=capacity,
+                capacity=capacity - (active_range / 2),
                 coyotes_per_group=5,
                 n_groups=5,
                 p_leave=0.001,
@@ -202,7 +202,7 @@ def adjust_nodes(capacity, active_range, max_delay):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Kubernetes Node Scaler")
     parser.add_argument("--capacity", type=float, default=80.0, help="Target Resource Usage（％％）")
-    parser.add_argument("--activate_range", type=float, default=10.0, help="Upper bound - Lower bound（％％）")
+    parser.add_argument("--activate_range", type=float, default=20.0, help="Upper bound - Lower bound（％％）")
     parser.add_argument("--max_calculate_times", type=int, default=100, help="Max Calculate Times")
     parser.add_argument("--sleep_time", type=int, default=5, help="Sleep Time（s）")
     parser.add_argument("--log_level", type=str, default="INFO", help="Log Level（DEBUG, INFO, WARNING, ERROR, CRITICAL）")

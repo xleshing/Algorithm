@@ -115,7 +115,7 @@ def adjust_nodes(pre_pod_cpu, pre_pod_mem, capacity, active_range, max_delay):
                 d=len(values),
                 value=values,
                 weight=weight[0],
-                capacity=capacity,
+                capacity=capacity - (active_range / 2),
                 coyotes_per_group=5,
                 n_groups=5,
                 p_leave=0.001,
@@ -146,7 +146,7 @@ if __name__ == "__main__":
     parser.add_argument("--pre_pod_cpu", type=float, help="Predict Pod CPU Usage（％％）")
     parser.add_argument("--pre_pod_mem", type=float, help="Predict Pod Memery Usage（％％）")
     parser.add_argument("--capacity", type=float, default=80.0, help="Target Resource Usage（％％）")
-    parser.add_argument("--activate_range", type=float, default=10.0, help="Upper bound - Lower bound（％％）")
+    parser.add_argument("--activate_range", type=float, default=20.0, help="Upper bound - Lower bound（％％）")
     parser.add_argument("--max_calculate_times", type=int, default=100, help="Max Calculate Times")
     parser.add_argument("--log_level", type=str, default="INFO", help="Log Level（DEBUG, INFO, WARNING, ERROR, CRITICAL）")
 
