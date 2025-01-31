@@ -5,7 +5,7 @@ import argparse
 import logging
 from logging.handlers import RotatingFileHandler
 from MMCOA import Algorithm
-import time
+
 
 # 初始化 Kubernetes API
 # 在 Kubernetes 內部執行時改用 `config.load_incluster_config()`
@@ -55,64 +55,6 @@ def uncordon_node(node):
     v1.patch_node(node, {"spec": {"unschedulable": False}})
     logger.info(f"{node}（Uncordon）")
 
-def convert_memory_to_mib(mem_str):
-    """將記憶體字串 (如 '256Mi', '1Gi', '512Ki', '100M') 轉換為 MiB"""
-    mem_str = mem_str.strip()
-    if mem_str.endswith("Mi"):
-        return int(mem_str[:-2])
-    elif mem_str.endswith("Gi"):
-        return int(mem_str[:-2]) * 1024
-    elif mem_str.endswith("Ki"):
-        return int(mem_str[:-2]) // 1024
-    elif mem_str.endswith("M"):
-        return int(mem_str[:-1])
-    elif mem_str.endswith("G"):
-        return int(mem_str[:-1]) * 1024
-    else:
-        try:
-            return int(mem_str)
-        except ValueError:
-            logger.error(f"Unable to parse memory value: {mem_str}")
-            return 0
-
-        # 取得目前 Pod 使用率
-def get_pod_usage():
-    """ 取得所有 **非 Master 節點** 上的 Pod 的 CPU 和記憶體使用率 """
-    total_cpu = 0
-    total_mem = 0
-
-    # 取得 Master 節點列表
-    master_nodes = set(get_node_capacity()[0])
-
-    # 獲取所有 Pod
-    pods = v1.list_pod_for_all_namespaces(watch=False)
-
-    for pod in pods.items:
-        try:
-            node_name = pod.spec.node_name
-            if node_name in master_nodes:
-                continue
-
-            for container in pod.spec.containers:
-                requests = container.resources.requests or {}
-
-                cpu = requests.get("cpu", "0m")
-                mem = requests.get("memory", "0Mi")
-
-                if cpu.endswith("m"):
-                    cpu = int(cpu[:-1]) / 1000
-                else:
-                    cpu = int(cpu)
-
-                mem = convert_memory_to_mib(mem)
-
-                total_cpu += cpu
-                total_mem += mem
-        except KeyError:
-            continue
-
-    return total_cpu, total_mem
-
 # 取得目前節點資源上限
 def get_node_capacity():
     """ 取得所有 **非 Master** 節點的 CPU/記憶體上限，並判斷是否在休眠狀態（cordon 狀態）"""
@@ -150,9 +92,9 @@ def get_node_capacity():
     return nodes, values, status
 
 # 根據演算法輸出調整節點狀態
-def adjust_nodes(capacity, active_range, max_delay):
+def adjust_nodes(pre_pod_cpu, pre_pod_mem, capacity, active_range, max_delay):
     turn_node_on = 0
-    pod_cpu, pod_mem = get_pod_usage()
+    pod_cpu, pod_mem = pre_pod_cpu, pre_pod_mem
     node_list, values, node_status = get_node_capacity()
 
     weight = [pod_cpu, pod_mem]
@@ -200,10 +142,11 @@ def adjust_nodes(capacity, active_range, max_delay):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Kubernetes Node Scaler")
+    parser.add_argument("--pre_pod_cpu", type=float, help="Predict Pod CPU Usage（％％）")
+    parser.add_argument("--pre_pod_mem", type=float, help="Predict Pod Memery Usage（％％）")
     parser.add_argument("--capacity", type=float, default=80.0, help="Target Resource Usage（％％）")
     parser.add_argument("--activate_range", type=float, default=10.0, help="Upper bound - Lower bound（％％）")
     parser.add_argument("--max_calculate_times", type=int, default=100, help="Max Calculate Times")
-    parser.add_argument("--sleep_time", type=int, default=5, help="Sleep Time（s）")
     parser.add_argument("--log_level", type=str, default="INFO", help="Log Level（DEBUG, INFO, WARNING, ERROR, CRITICAL）")
 
     args = parser.parse_args()
@@ -223,8 +166,6 @@ if __name__ == "__main__":
     logger.addHandler(log_handler)
     logger.addHandler(console_handler)  # ✅ 記錄到命令行（stdout）
 
-    logger.info(f"Target Resource Usage：{args.capacity}%, Upper bound - Lower bound：{args.activate_range}%, Max Calculate Times：{args.max_calculate_times}, Sleep Time：{args.sleep_time}s, Log Level：{args.log_level}")
-    # print(f"目標資源使用率：{args.capacity}%, 上下限空間：{args.active_range}%, 最大計算次數：{args.max_calculate_times}, 睡眠時間{args.sleep_time}s, 日誌級別：{args.log_level}")
-    while True:
-        adjust_nodes(args.capacity, args.activate_range, args.max_calculate_times)
-        time.sleep(args.sleep_time)
+    logger.info(f"Target Resource Usage：{args.capacity}%, Upper bound - Lower bound：{args.activate_range}%, Max Calculate Times：{args.max_calculate_times}, Log Level：{args.log_level}")
+
+    adjust_nodes(args.pre_pod_cpu, args.pre_pod_mem, args.capacity, args.activate_range, args.max_calculate_times)

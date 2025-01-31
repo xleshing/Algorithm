@@ -221,8 +221,6 @@ class Algorithm:
     def mmco_coyote_exchange(self, groups):
         """
         依機率 p_leave, 隨機抽兩個不同群, 各自隨機選一隻 coyote 互換.
-        使族群之間能有基因流動, 類似 COA eq.4.
-        備註: 如果要做多次, 可在外圍再加 for 迴圈.
         """
         n_groups, coyotes_per_group = groups.shape
         p_leave = self.p_leave * (self.coyotes_per_group ** 2)
