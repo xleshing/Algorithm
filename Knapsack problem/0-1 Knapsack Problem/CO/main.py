@@ -4,6 +4,9 @@ import time
 from MMCOA import Algorithm
 import numpy as np
 import argparse
+import logging
+from logging.handlers import RotatingFileHandler
+
 
 
 def convert_memory_to_mib(mem_str):
@@ -23,7 +26,7 @@ def convert_memory_to_mib(mem_str):
         try:
             return int(mem_str)  # 嘗試直接轉換
         except ValueError:
-            print(f"⚠️ 無法解析記憶體數值: {mem_str}")
+            logger.debug(f"⚠️ 無法解析記憶體數值: {mem_str}")
             return 0  # 如果格式錯誤，返回 0
 
 
@@ -96,7 +99,7 @@ def get_node_capacity():
         # has_no_schedule = any(t["effect"] == "NoSchedule" for t in taints)
 
         if is_master:
-            print(f"⚠️ 跳過 Master 節點: {name}")
+            logger.debug(f"⚠️ 跳過 Master 節點: {name}")
             continue  # 跳過 Master 節點
 
         # 取得 CPU/Memory 上限
@@ -124,12 +127,12 @@ def adjust_nodes(capacity, active_range, max_delay):
 
     weight = [pod_cpu, pod_mem]  # 目前總負載
 
-    print("所有pod總消耗（核）：", weight[0], "所有可找到 node：", node_list, "各 node CPU 上限（核）：", values, "目前總負載（％）：", weight[0] / np.dot(node_status, values) * 100)
+    logger.debug("所有pod總消耗（核）：", weight[0], "所有可找到 node：", node_list, "各 node CPU 上限（核）：", values, "目前總負載（％）：", weight[0] / np.dot(node_status, values) * 100)
 
     if weight[0] / np.dot(node_status, values) * 100 + active_range < capacity or weight[0] / np.dot(node_status, values) * 100 > capacity:
 
         if weight[0] / np.dot(np.ones_like(node_status), values) * 100 > capacity:
-            print(f"資源過低，請調整目標值（目標值：{capacity} %，如果node全開之集群負載：{weight[0] / np.dot(np.ones_like(node_status), values) * 100} %）")
+            logger.warning(f"資源過低，請調整目標值（目標值：{capacity} %，如果node全開之集群負載：{weight[0] / np.dot(np.ones_like(node_status), values) * 100} %）")
         else:
             algorithm = Algorithm(
                 turn_node_on,
@@ -147,21 +150,21 @@ def adjust_nodes(capacity, active_range, max_delay):
             best_sol, best_fit, curve = algorithm.MMCO_main()
 
             if best_sol.tolist() == node_status:
-                print("目前已是最佳或找不到最佳，保持原狀態，或修改目標值與Max Calculate times")
+                logger.warning("目前已是最佳或找不到最佳，保持原狀態，或修改目標值與Max Calculate times")
             else:
                 decision = best_sol
                 for i, node in enumerate(node_list):
                     if decision[i] == 0 and node_status[i] == 1:  # 需要關閉且目前是可用狀態
-                        print(f"讓節點 {node} 進入睡眠模式")
+                        logger.info(f"讓節點 {node} 進入睡眠模式")
                         subprocess.run(f"kubectl drain {node} --ignore-daemonsets --delete-emptydir-data", shell=True)
                         subprocess.run(f"kubectl cordon {node}", shell=True)
 
                     elif decision[i] == 1 and node_status[i] == 0:  # 需要開啟且目前是休眠狀態
-                        print(f"喚醒節點 {node}")
+                        logger.info(f"喚醒節點 {node}")
                         subprocess.run(f"kubectl uncordon {node}", shell=True)
 
-                print("最佳解：", decision)
-                print("目前總負載（％）：", weight[0] / np.dot(decision, values) * 100)
+                logger.debug("最佳解：", decision)
+                logger.debug("目前總負載（％）：", weight[0] / np.dot(decision, values) * 100)
 
 
 if __name__ == "__main__":
@@ -169,5 +172,23 @@ if __name__ == "__main__":
     parser.add_argument("--capacity", type=float, default=80.0, help="目標資源使用率 預設80(%%)")
     parser.add_argument("--active_range", type=float, default=10.0, help="上下限空間 預設10(%%)")
     parser.add_argument("--max_calculate_times", type=int, default=100, help="最大計算次數 預設100")
+    parser.add_argument("--log-level", type=str, default="INFO",
+                        help="設定日誌級別（DEBUG, INFO, WARNING, ERROR, CRITICAL）")
     args = parser.parse_args()
+
+    # 將日誌等級轉換為 logging 模組可用的值
+    log_level = getattr(logging, args.log_level.upper(), logging.INFO)
+
+    # 設定日誌格式
+    log_formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
+
+    # 設定日誌輪替（最大 5MB，保留 3 份）
+    log_handler = RotatingFileHandler("Node_Scaler.log", maxBytes=5*1024*1024, backupCount=3)
+    log_handler.setFormatter(log_formatter)
+
+    # 設定 logger
+    logger = logging.getLogger("Node_Scaler_logger")
+    logger.setLevel(log_level)  # 由外部參數決定日誌等級
+    logger.addHandler(log_handler)
+
     adjust_nodes(args.capacity, args.active_range, args.max_calculate_times)
