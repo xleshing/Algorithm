@@ -164,9 +164,8 @@ def adjust_nodes(capacity, active_range, max_delay, namespaces_str):
 
     weight = [pod_cpu, pod_mem]
 
-    # logger.debug("所有 pod 總消耗（核）：", weight[0], "所有可用 node：", node_list, "各 node CPU 上限（核）：", values, "目前總負載（％）：", weight[0] / np.dot(node_status, values) * 100)
     logger.debug(f"所有 pod 總消耗（核）：{weight[0]}，所有可用 node：{node_list}，各 node CPU 上限（核）：{values}，目前總負載（％）：{weight[0] / np.dot(node_status, values) * 100:.2f}")
-    if weight[0] / np.dot(node_status, values) * 100 + active_range < capacity or weight[0] / np.dot(node_status, values) * 100 > capacity:
+    if weight[0] / np.dot(node_status, values) * 100 + active_range < capacity or weight[0] / np.dot(node_status, values) * 100 - active_range > capacity:
         if weight[0] / np.dot(np.ones_like(node_status), values) * 100 > capacity:
             logger.warning(f"Not enough resources, will activate all node（Target Value：{capacity} %，The Cluster Load after activate all node：{weight[0] / np.dot(np.ones_like(node_status), values) * 100} %）")
             for i, node in enumerate(node_list):
@@ -180,7 +179,7 @@ def adjust_nodes(capacity, active_range, max_delay, namespaces_str):
                 d=len(values),
                 value=values,
                 weight=weight[0],
-                capacity=capacity - (active_range / 2),
+                capacity=capacity,
                 coyotes_per_group=5,
                 n_groups=5,
                 p_leave=0.001,
@@ -210,7 +209,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Kubernetes Node Scaler")
     parser.add_argument("--namespaces", type=str, default="default", help="Target Pod Namespaces (namespace_1 namespace_2 ...)")
     parser.add_argument("--capacity", type=float, default=80.0, help="Target Resource Usage（％％）")
-    parser.add_argument("--activate_range", type=float, default=20.0, help="Upper bound - Lower bound（％％）")
+    parser.add_argument("--tolerance_value", type=float, default=10.0, help="Tolerance Value（％％）")
     parser.add_argument("--max_calculate_times", type=int, default=100, help="Max Calculate Times")
     parser.add_argument("--sleep_time", type=int, default=5, help="Sleep Time（s）")
     parser.add_argument("--log_level", type=str, default="INFO", help="Log Level（DEBUG, INFO, WARNING, ERROR, CRITICAL）")
@@ -232,8 +231,8 @@ if __name__ == "__main__":
     logger.addHandler(log_handler)
     logger.addHandler(console_handler)  # ✅ 記錄到命令行（stdout）
 
-    logger.info(f"Target Pod Namespaces：{args.namespaces}, Target Resource Usage：{args.capacity}%, Upper bound - Lower bound：{args.activate_range}%, Max Calculate Times：{args.max_calculate_times}, Sleep Time：{args.sleep_time}s, Log Level：{args.log_level}")
+    logger.info(f"Target Pod Namespaces：{args.namespaces}, Target Resource Usage：{args.capacity}%, Tolerance Value：{args.tolerance_value}%, Max Calculate Times：{args.max_calculate_times}, Sleep Time：{args.sleep_time}s, Log Level：{args.log_level}")
     # print(f"目標資源使用率：{args.capacity}%, 上下限空間：{args.active_range}%, 最大計算次數：{args.max_calculate_times}, 睡眠時間{args.sleep_time}s, 日誌級別：{args.log_level}")
     while True:
-        adjust_nodes(args.capacity, args.activate_range, args.max_calculate_times, args.namespaces)
+        adjust_nodes(args.capacity, args.tolerance_value, args.max_calculate_times, args.namespaces)
         time.sleep(args.sleep_time)
