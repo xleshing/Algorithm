@@ -29,17 +29,20 @@ def evict_pod(pod_name, namespace):
     except Exception as e:
         logger.warning(f"{pod_name}（Evict Failed）：{e}")
 
-def drain_node(node):
+def drain_node(node, namespaces):
     """ 執行 `kubectl drain` 效果 """
     # 1️⃣ `cordon` 節點（標記為不可調度）
     v1.patch_node(node, {"spec": {"unschedulable": True}})
     logger.info(f"{node}（Cordon）")
 
     # 2️⃣ 找到該節點上的 Pod
-    pods = v1.list_pod_for_all_namespaces(field_selector=f"spec.nodeName={node}").items
+    all_pods = []
+    for ns in namespaces:
+        pods = v1.list_namespaced_pod(namespace=ns, field_selector=f"spec.nodeName={node}").items
+        all_pods.extend(pods)  # 將結果累加
 
     # 3️⃣ 驅逐所有非 DaemonSet 的 Pod
-    for pod in pods:
+    for pod in all_pods:
         is_evict = True
         if pod.metadata.owner_references:
             for owner in pod.metadata.owner_references:
@@ -76,7 +79,7 @@ def convert_memory_to_mib(mem_str):
             return 0
 
         # 取得目前 Pod 使用率
-def get_pod_usage():
+def get_pod_usage(namespaces):
     """ 取得所有 **非 Master 節點** 上的 Pod 的 CPU 和記憶體使用率 """
     total_cpu = 0
     total_mem = 0
@@ -85,9 +88,12 @@ def get_pod_usage():
     master_nodes = set(get_node_capacity()[0])
 
     # 獲取所有 Pod
-    pods = v1.list_pod_for_all_namespaces(watch=False)
+    all_pods = []
+    for ns in namespaces:
+        pods = v1.list_namespaced_pod(namespace=ns).items
+        all_pods.extend(pods)  # 將所有 Pod 加入列表
 
-    for pod in pods.items:
+    for pod in all_pods:
         try:
             node_name = pod.spec.node_name
             if node_name in master_nodes:
@@ -150,9 +156,10 @@ def get_node_capacity():
     return nodes, values, status
 
 # 根據演算法輸出調整節點狀態
-def adjust_nodes(capacity, active_range, max_delay):
+def adjust_nodes(capacity, active_range, max_delay, namespaces_str):
+    namespaces = namespaces_str.split(" ")
     turn_node_on = 0
-    pod_cpu, pod_mem = get_pod_usage()
+    pod_cpu, pod_mem = get_pod_usage(namespaces)
     node_list, values, node_status = get_node_capacity()
 
     weight = [pod_cpu, pod_mem]
@@ -194,13 +201,14 @@ def adjust_nodes(capacity, active_range, max_delay):
 
                 for i, node in enumerate(node_list):
                     if decision[i] == 0 and node_status[i] == 1:  # 需要關閉且目前是可用狀態
-                        drain_node(node)  # 使用 `drain` API
+                        drain_node(node, namespaces)  # 使用 `drain` API
 
                 logger.info(f"Nodes Status：{decision}, Cluster Load：{weight[0] / np.dot(decision, values) * 100}%")
                 logger.info("----")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Kubernetes Node Scaler")
+    parser.add_argument("--namespaces", type=str, default="default", help="Target Pod Namespaces (namespace_1 namespace_2 ...)")
     parser.add_argument("--capacity", type=float, default=80.0, help="Target Resource Usage（％％）")
     parser.add_argument("--activate_range", type=float, default=20.0, help="Upper bound - Lower bound（％％）")
     parser.add_argument("--max_calculate_times", type=int, default=100, help="Max Calculate Times")
@@ -224,8 +232,8 @@ if __name__ == "__main__":
     logger.addHandler(log_handler)
     logger.addHandler(console_handler)  # ✅ 記錄到命令行（stdout）
 
-    logger.info(f"Target Resource Usage：{args.capacity}%, Upper bound - Lower bound：{args.activate_range}%, Max Calculate Times：{args.max_calculate_times}, Sleep Time：{args.sleep_time}s, Log Level：{args.log_level}")
+    logger.info(f"Target Pod Namespaces：{args.namespaces}, Target Resource Usage：{args.capacity}%, Upper bound - Lower bound：{args.activate_range}%, Max Calculate Times：{args.max_calculate_times}, Sleep Time：{args.sleep_time}s, Log Level：{args.log_level}")
     # print(f"目標資源使用率：{args.capacity}%, 上下限空間：{args.active_range}%, 最大計算次數：{args.max_calculate_times}, 睡眠時間{args.sleep_time}s, 日誌級別：{args.log_level}")
     while True:
-        adjust_nodes(args.capacity, args.activate_range, args.max_calculate_times)
+        adjust_nodes(args.capacity, args.activate_range, args.max_calculate_times, args.namespaces)
         time.sleep(args.sleep_time)
