@@ -1,20 +1,20 @@
 import numpy as np
-
-
+import pandas as pd
+import matplotlib.pyplot as plt
+from pandas.plotting import parallel_coordinates, scatter_matrix
 class NSGA3_Knapsack:
     def __init__(self, num_knapsacks, num_items, population_size, generations, objective_functions, item_values,
                  knapsack_capacities, divisions=4):
         """
-        初始化 NSGA-III 多目標背包問題（每個物品僅分配到一個背包）
-
+        初始化 NSGA-III 多目標負載均衡問題
         參數:
-          num_knapsacks: 背包數量
-          num_items: 物品數量
+          num_knapsacks: 伺服器（背包）數量
+          num_items: 請求（物品）數量
           population_size: 種群規模
           generations: 迭代代數
-          objective_functions: 目標函數列表，格式為 f(solution, usage, item_values, knapsack_capacities) -> float
-          item_values: 每個物品在各目標下的價值，形狀為 (num_items, num_objectives)
-          knapsack_capacities: 每個背包在各目標下的容量上限，形狀為 (num_knapsacks, num_objectives)
+          objective_functions: 目標函數列表，每個函數格式為 f(solution, usage, item_values, knapsack_capacities) -> float
+          item_values: 每個請求的負載值，形狀為 (num_items, 1)
+          knapsack_capacities: 每個伺服器的容量上限，形狀為 (num_knapsacks, 1)
           divisions: 用於生成參考點的劃分份數
         """
         self.num_knapsacks = num_knapsacks
@@ -25,12 +25,11 @@ class NSGA3_Knapsack:
         self.item_values = np.array(item_values)
         self.knapsack_capacities = np.array(knapsack_capacities)
         self.divisions = divisions  # 參考點劃分份數
-        # 初始種群確保每個物品只分配到一個背包且滿足容量約束
         self.population = np.array([self.generate_feasible_solution() for _ in range(population_size)])
         self.fitness_history = []
 
     def generate_feasible_solution(self):
-        num_objectives = self.item_values.shape[1]
+        num_objectives = self.item_values.shape[1]  # 這裡為1
         current_usage = np.zeros((self.num_knapsacks, num_objectives))
         solution = np.empty(self.num_items, dtype=int)
         indices = np.random.permutation(self.num_items)
@@ -44,7 +43,7 @@ class NSGA3_Knapsack:
                 solution[i] = chosen
                 current_usage[chosen] += self.item_values[i]
             else:
-                raise ValueError(f"物品 {i} 無法分配到任何背包，請檢查參數設定！")
+                raise ValueError(f"請求 {i} 無法分配到任何伺服器，請檢查參數設定！")
         return solution
 
     def compute_objective_usage(self, solution):
@@ -61,24 +60,12 @@ class NSGA3_Knapsack:
         return usage
 
     def fitness(self, solution):
-        """
-        計算個體適應度：
-          先計算各背包在各目標下的使用值，再依次調用各目標函數。
-        """
         usage = self.compute_objective_usage(solution)
         raw_values = np.array(
             [f(solution, usage, self.item_values, self.knapsack_capacities) for f in self.objective_functions])
         return raw_values
 
     def normalize_population(self, fitness_values):
-        """
-        NSGA-III 歸一化步驟：
-          1. 計算理想點（各目標的最小值）
-          2. 將目標值平移（減去理想點）
-          3. 利用 ASF 函數求各目標的極值點
-          4. 構造超平面並求各坐標軸截距
-          5. 用截距將目標值歸一化到 [0, 1]
-        """
         ideal = np.min(fitness_values, axis=0)
         translated = fitness_values - ideal
         num_objectives = fitness_values.shape[1]
@@ -110,12 +97,10 @@ class NSGA3_Knapsack:
 
         for i in range(num_solutions):
             for j in range(i + 1, num_solutions):
-                if np.all(population_fitness[i] <= population_fitness[j]) and np.any(
-                        population_fitness[i] < population_fitness[j]):
+                if np.all(population_fitness[i] <= population_fitness[j]) and np.any(population_fitness[i] < population_fitness[j]):
                     dominated_solutions[i].append(j)
                     domination_counts[j] += 1
-                elif np.all(population_fitness[j] <= population_fitness[i]) and np.any(
-                        population_fitness[j] < population_fitness[i]):
+                elif np.all(population_fitness[j] <= population_fitness[i]) and np.any(population_fitness[j] < population_fitness[i]):
                     dominated_solutions[j].append(i)
                     domination_counts[i] += 1
             if domination_counts[i] == 0:
@@ -144,10 +129,6 @@ class NSGA3_Knapsack:
         return sorted_fronts
 
     def generate_reference_points(self, M, p):
-        """
-        生成 M 維空間中劃分為 p 份的參考點（單位單純形上的點）
-        """
-
         def recursive_gen(m, left, current):
             if m == 1:
                 return [current + [left]]
@@ -155,16 +136,11 @@ class NSGA3_Knapsack:
             for i in range(left + 1):
                 points.extend(recursive_gen(m - 1, left - i, current + [i]))
             return points
-
         ref_points = np.array(recursive_gen(M, p, []))
         ref_points = ref_points / p
         return ref_points
 
     def associate_to_reference_points(self, normalized_values, reference_points):
-        """
-        將每個個體的歸一化目標向量與各參考點對應的參考線（從原點出發）做關聯，
-        計算垂直距離，並返回最短距離的參考點索引及該距離。
-        """
         norm_ref = reference_points / np.linalg.norm(reference_points, axis=1, keepdims=True)
         assoc_indices = []
         distances = []
@@ -176,7 +152,7 @@ class NSGA3_Knapsack:
             else:
                 dists = []
                 for r in norm_ref:
-                    proj = np.dot(sol, r) * r  # 投影向量
+                    proj = np.dot(sol, r) * r
                     d = np.linalg.norm(sol - proj)
                     dists.append(d)
                 idx = np.argmin(dists)
@@ -185,13 +161,8 @@ class NSGA3_Knapsack:
         return np.array(assoc_indices), np.array(distances)
 
     def niche_selection(self, front, assoc, niche_count, remaining_slots):
-        """
-        對部分前沿中關聯到參考點的個體進行小生境選擇：
-          根據每個參考點已有個體數（niche count），選擇距離較近且所屬參考點擁擠度較低的個體
-        """
         candidates = list(front)
         selected = []
-        # 假定 assoc 的順序與 front 中個體順序一致
         while remaining_slots > 0 and candidates:
             candidate_info = []
             for i, global_idx in enumerate(front):
@@ -211,13 +182,6 @@ class NSGA3_Knapsack:
         return selected
 
     def selection(self):
-        """
-        NSGA-III 選擇操作：
-          1. 對全體種群計算目標值，進行非支配排序，獲得各前沿集合
-          2. 依次將完整前沿加入下一代，直到最後一個前沿無法全部收納
-          3. 對最後前沿中的個體進行歸一化和參考點關聯，
-             並依據各參考點的小生境數量選擇部分個體填滿下一代
-        """
         population_fitness = np.array([self.fitness(sol) for sol in self.population])
         fronts = self.non_dominated_sort_by_front(population_fitness)
         new_indices = []
@@ -244,10 +208,6 @@ class NSGA3_Knapsack:
         return self.population[new_indices]
 
     def crossover(self, parent1, parent2):
-        """
-        單點交叉：隨機選取一個交叉點，前半部分來自 parent1，後半部分來自 parent2，
-        交叉後利用 repair_solution 修正使子代滿足約束
-        """
         if np.random.rand() < 0.9:
             point = np.random.randint(1, self.num_items)
             child1 = np.concatenate([parent1[:point], parent2[point:]])
@@ -259,9 +219,6 @@ class NSGA3_Knapsack:
         return child1, child2
 
     def mutation(self, solution):
-        """
-        變異操作：隨機選取一個物品，改變其背包分配，然後修正解
-        """
         sol = solution.copy()
         if np.random.rand() < 0.2:
             idx = np.random.randint(0, self.num_items)
@@ -286,8 +243,7 @@ class NSGA3_Knapsack:
                                 continue
                             new_usage_j = usage[j] - self.item_values[i]
                             new_usage_k = usage[k] + self.item_values[i]
-                            if np.all(new_usage_j <= self.knapsack_capacities[j]) and np.all(
-                                    new_usage_k <= self.knapsack_capacities[k]):
+                            if np.all(new_usage_j <= self.knapsack_capacities[j]) and np.all(new_usage_k <= self.knapsack_capacities[k]):
                                 solution[i] = k
                                 usage[j] = new_usage_j
                                 usage[k] = new_usage_k
@@ -314,55 +270,178 @@ class NSGA3_Knapsack:
         population_fitness = np.array([self.fitness(sol) for sol in self.population])
         fronts = self.non_dominated_sort_by_front(population_fitness)
         best_front = fronts[0]
-        best_index = best_front[0]
-        return self.population[best_index]
+        # best_index = best_front[0]
+        # return self.population[best_index]
+        return self.population[best_front]
 
+# 以下定義7個目標函數，新目標如下：
+# 1. 請求處理延遲最小化：以各伺服器負載率最大值近似
+def objective_latency(solution, usage, item_values, knapsack_capacities):
+    load_ratios = usage.flatten() / knapsack_capacities.flatten()
+    return np.max(load_ratios)
 
-# 定義兩個目標函數示例
-def objective_example1(solution, usage, item_values, knapsack_capacities):
-    """
-    目標1：使各背包使用值均衡——最小化各背包使用率標準差
-    """
-    return np.std(usage / knapsack_capacities)
+# 2. 系統吞吐量最大化：以各伺服器 1/(1+負載率) 之和近似，取負值後最小化
+def objective_throughput(solution, usage, item_values, knapsack_capacities):
+    load_ratios = usage.flatten() / knapsack_capacities.flatten()
+    throughput = np.sum(1.0 / (1 + load_ratios))
+    return -throughput
 
+# 3. 資源利用率最優化：使各伺服器負載率分布更均衡（標準差最小）
+def objective_resource_utilization(solution, usage, item_values, knapsack_capacities):
+    load_ratios = usage.flatten() / knapsack_capacities.flatten()
+    return np.std(load_ratios)
 
-def objective_example2(solution, usage, item_values, knapsack_capacities):
-    """
-    目標2：最小化所有背包的總使用率
-    """
-    return np.sum(usage / knapsack_capacities)
+# 4. 錯誤率最小化：假定負載率超過0.8產生錯誤，累計超過部分
+def objective_error_rate(solution, usage, item_values, knapsack_capacities):
+    load_ratios = usage.flatten() / knapsack_capacities.flatten()
+    errors = np.maximum(0, load_ratios - 0.8)
+    return np.sum(errors)
 
+# 5. 成本最小化：簡單以負載率總和近似
+def objective_cost(solution, usage, item_values, knapsack_capacities):
+    load_ratios = usage.flatten() / knapsack_capacities.flatten()
+    return np.sum(load_ratios)
+
+# 6. 服務可用性最大化：以伺服器剩餘容量比例的最小值表示，取負值最小化
+def objective_availability(solution, usage, item_values, knapsack_capacities):
+    slack = (knapsack_capacities.flatten() - usage.flatten()) / knapsack_capacities.flatten()
+    return -np.min(slack)
+
+# 7. 負載均衡效果最優化：最小化最大與最小負載率的差
+def objective_load_balancing(solution, usage, item_values, knapsack_capacities):
+    load_ratios = usage.flatten() / knapsack_capacities.flatten()
+    return np.max(load_ratios) - np.min(load_ratios)
 
 if __name__ == "__main__":
-    # 參數設定
-    num_knapsacks = 5  # 背包數量
-    num_items = 50  # 物品數量
+    # 參數設定：假設每個請求的負載隨機在1到4之間，伺服器容量在50到60之間
+    num_knapsacks = 5
+    num_items = 50
     population_size = 20
     generations = 50
 
-    # 此處設定 2 維目標（因此每個物品和每個背包均為2維數據）
-    num_objectives = 2
-    item_values = np.random.randint(1, 2, [num_items, num_objectives])
-    knapsack_capacities = np.random.randint(20, 21, [num_knapsacks, num_objectives])
+    num_objectives = 1  # 每個請求只有一個負載值
+    item_values = np.random.randint(1, 5, [num_items, num_objectives])
+    knapsack_capacities = np.random.randint(50, 61, [num_knapsacks, num_objectives])
 
-    objectives = [objective_example1, objective_example2]
+    # 目標函數列表（共7個目標）
+    objectives = [objective_latency, objective_throughput, objective_resource_utilization,
+                  objective_error_rate, objective_cost, objective_availability, objective_load_balancing]
 
     nsga3 = NSGA3_Knapsack(num_knapsacks, num_items, population_size, generations, objectives, item_values,
                            knapsack_capacities)
     best_solution = nsga3.evolve()
 
-    print("最佳解（每個物品的分配向量）：")
+    print("最佳解（每個請求分配到的伺服器編號向量）：")
     print(best_solution)
 
-    best_usage = nsga3.compute_objective_usage(best_solution)
-    print("\n各背包在各目標下的使用值：")
+    best_usage = [nsga3.compute_objective_usage(solution) for solution in best_solution]
+    print("\n各伺服器處理的總負載（使用值）：")
     print(best_usage)
 
-    print("\n各背包在各目標下的容量上限：")
+    print("\n各伺服器的容量上限：")
     print(knapsack_capacities)
 
     occupancy_rate = best_usage / knapsack_capacities
-    print("\n每個背包的每個目標維度佔用率：")
+    print("\n各伺服器的負載率：")
     print(occupancy_rate)
 
-    print("\nNormalized spread (std of occupancy rates):", np.std(occupancy_rate))
+    print("\n各目標函數的值：")
+    print("延遲指標（最大負載率）：", [objective_latency(solution, best_usage[usage_index], nsga3.item_values, nsga3.knapsack_capacities) for usage_index, solution in enumerate(best_solution, 0)])
+    print("吞吐量指標（負吞吐量）：", [objective_throughput(solution, best_usage[usage_index], nsga3.item_values, nsga3.knapsack_capacities) for usage_index, solution in enumerate(best_solution, 0)])
+    print("資源均衡指標（負載率標準差）：", [objective_resource_utilization(solution, best_usage[usage_index], nsga3.item_values, nsga3.knapsack_capacities) for usage_index, solution in enumerate(best_solution, 0)])
+    print("錯誤率指標：", [objective_error_rate(solution, best_usage[usage_index], nsga3.item_values, nsga3.knapsack_capacities) for usage_index, solution in enumerate(best_solution, 0)])
+    print("成本指標（負載率總和）：", [objective_cost(solution, best_usage[usage_index], nsga3.item_values, nsga3.knapsack_capacities) for usage_index, solution in enumerate(best_solution, 0)])
+    print("可用性指標（負最小剩餘比）：", [objective_availability(solution, best_usage[usage_index], nsga3.item_values, nsga3.knapsack_capacities) for usage_index, solution in enumerate(best_solution, 0)])
+    print("負載均衡指標（最大與最小負載率差）：", [objective_load_balancing(solution, best_usage[usage_index], nsga3.item_values, nsga3.knapsack_capacities) for usage_index, solution in enumerate(best_solution, 0)])
+
+    # 假設 best_solution 和 best_usage 已經從 NSGA-III 演化過程中獲得，
+    # 並且 nsga3 以及各目標函數（objective_latency、objective_throughput、...）均已定義
+
+    # 例如：
+    # best_solution = [sol1, sol2, sol3, ...]  # 每個 sol 為一個分配向量
+    # best_usage = [nsga3.compute_objective_usage(sol) for sol in best_solution]
+
+    # 收集每個解的各目標值到列表中
+    objectives_data = []
+    for idx, solution in enumerate(best_solution):
+        # 對應解的使用值
+        usage = best_usage[idx]
+        # 計算各目標的值
+        latency_val = objective_latency(solution, usage, nsga3.item_values, nsga3.knapsack_capacities)
+        throughput_val = objective_throughput(solution, usage, nsga3.item_values, nsga3.knapsack_capacities)
+        resource_utilization_val = objective_resource_utilization(solution, usage, nsga3.item_values,
+                                                                  nsga3.knapsack_capacities)
+        error_rate_val = objective_error_rate(solution, usage, nsga3.item_values, nsga3.knapsack_capacities)
+        cost_val = objective_cost(solution, usage, nsga3.item_values, nsga3.knapsack_capacities)
+        availability_val = objective_availability(solution, usage, nsga3.item_values, nsga3.knapsack_capacities)
+        load_balancing_val = objective_load_balancing(solution, usage, nsga3.item_values, nsga3.knapsack_capacities)
+
+        # 將各目標結果存入字典中（解的編號作為分類標識）
+        objectives_data.append({
+            'Solution': f"Sol_{idx}",
+            'Latency': latency_val,
+            'Throughput': throughput_val,
+            'ResourceUtilization': resource_utilization_val,
+            'ErrorRate': error_rate_val,
+            'Cost': cost_val,
+            'Availability': availability_val,
+            'LoadBalancing': load_balancing_val
+        })
+
+    # 將數據轉換成 DataFrame
+    df = pd.DataFrame(objectives_data)
+    print("各目標函數的彙總數據：")
+    print(df)
+
+    # --- 平行座標圖 ---
+    plt.figure(figsize=(12, 6))
+    # 以 'Solution' 作為類別標籤，每條線代表一個解
+    parallel_coordinates(df, 'Solution', colormap=plt.get_cmap("Set2"))
+    plt.title("Parallel Coordinates of Pareto Front Solutions (NSGA3)")
+    plt.ylabel("Objective Function Values")
+    plt.tight_layout()
+    plt.show()
+
+
+    def scatter_matrix_with_mean(df, figsize=(12, 12)):
+        """
+        自定義散點矩陣：
+          - 非對角子圖：展示兩兩變數間的散點圖
+          - 對角子圖：顯示該列數據的均值
+        """
+        num_vars = df.shape[1]
+        fig, axes = plt.subplots(num_vars, num_vars, figsize=figsize)
+
+        # 遍歷每一個子圖
+        for i, col_i in enumerate(df.columns):
+            for j, col_j in enumerate(df.columns):
+                ax = axes[i, j]
+                if i == j:
+                    # 對角位置：顯示均值文本
+                    mean_val = df[col_i].mean()
+                    ax.text(0.5, 0.5, f"Mean: {mean_val:.2f}",
+                            horizontalalignment='center', verticalalignment='center', fontsize=12)
+                    # 去除刻度
+                    ax.set_xticks([])
+                    ax.set_yticks([])
+                    ax.set_frame_on(False)
+                else:
+                    # 非對角位置：繪製散點圖
+                    ax.scatter(df[col_j], df[col_i], alpha=0.8, color='blue')
+                    # 如非最外側圖形，隱藏刻度標籤
+                    if i < num_vars - 1:
+                        ax.set_xticks([])
+                    if j > 0:
+                        ax.set_yticks([])
+                    # 為最外層添加坐標標籤
+                    if i == num_vars - 1:
+                        ax.set_xlabel(col_j)
+                    if j == 0:
+                        ax.set_ylabel(col_i)
+        plt.tight_layout()
+        plt.show()
+
+    # --- Scatter Matrix ---
+    df_plot = df.drop('Solution', axis=1)
+    scatter_matrix_with_mean(df_plot, figsize=(12, 12))
+
