@@ -334,8 +334,8 @@ if __name__ == "__main__":
         {'id': '3', 'chain': ['0', '3']},
     ]
 
-    population_size = 100  # 用來產生多筆解的次數
-    generations = 100      # 此版本未使用
+    population_size = 100  # 此版本未使用
+    generations = 100      # 用來產生多筆解的次數
 
     ns_greedy = NSGreedy(network_nodes, edges, sfc_requests, vnf_traffic, population_size, generations)
     pareto_front = ns_greedy.evolve()
