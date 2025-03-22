@@ -50,15 +50,18 @@ def get_complete_path(assignment, graph):
 def objective_load_balance(solution, network_nodes, sfc_requests, vnf_traffic):
     """
     目標1：最小化節點負載均衡
-    計算各節點累計負載（流量需求 × node 的 load_per_unit），回傳負載標準差。
+    根據每個節點處理特定 VNF 時的負載係數（load_per_vnf），
+    累計負載後回傳負載標準差。
     """
     node_loads = {node_id: 0.0 for node_id in network_nodes.keys()}
     for req in sfc_requests:
         chain = req['chain']
-        demand = vnf_traffic[chain[0]]
         assignment = solution[req['id']]
-        for node_id in assignment:
-            node_loads[node_id] += demand * network_nodes[node_id]['load_per_unit']
+        for i, node_id in enumerate(assignment):
+            demand = vnf_traffic[chain[i]]
+            # 使用對應 VNF 的負載係數
+            load_factor = network_nodes[node_id]['load_per_vnf'][chain[i]]
+            node_loads[node_id] += demand * load_factor
     loads_array = np.array(list(node_loads.values()))
     return np.std(loads_array)
 
@@ -71,11 +74,11 @@ def objective_end_to_end_delay_bfs(solution, network_nodes, edges, sfc_requests,
       - 邊延遲：對於每對連續處理節點，利用 BFS 找出完整路徑，
         累計沿路每條邊的延遲 (demand / capacity)
     """
-    # graph: 每個節點的鄰居關係
     graph = {node_id: network_nodes[node_id]['neighbors'] for node_id in network_nodes}
     total_delay = 0.0
     for req in sfc_requests:
         chain = req['chain']
+        # 這裡 demand 可視需求選擇使用 chain 中對應的 vnf_traffic，本例中各 VNF 流量相同
         demand = vnf_traffic[chain[0]]
         assignment = solution[req['id']]
         node_delay = sum(network_nodes[assignment[i]]['processing_delay'][chain[i]] for i in range(len(assignment)))
@@ -138,7 +141,7 @@ class NSGA4_SFC:
     def __init__(self, network_nodes, edges, sfc_requests, vnf_traffic, population_size, generations):
         """
         參數說明：
-          network_nodes: 節點列表，每個元素包含 'id'、'vnf_types'、'neighbors'、'load_per_unit'、'processing_delay'
+          network_nodes: 節點列表，每個元素包含 'id'、'vnf_types'、'neighbors'、'load_per_vnf'、'processing_delay'
           edges: 邊的字典，鍵為 (node1, node2) 的 tuple，值為邊容量
           sfc_requests: SFC 請求列表，每筆請求包含 'id' 與 'chain'（VNF 連鎖）
           vnf_traffic: 字典，定義每個 VNF type 所需流量
@@ -201,8 +204,9 @@ class NSGA4_SFC:
         for req in self.sfc_requests:
             demand = self.vnf_traffic[req['chain'][0]]
             assignment = solution[req['id']]
-            for node_id in assignment:
-                node_loads[node_id] += demand * self.network_nodes[node_id]['load_per_unit']
+            for i, node_id in enumerate(assignment):
+                load_factor = self.network_nodes[node_id]['load_per_vnf'][req['chain'][i]]
+                node_loads[node_id] += demand * load_factor
         details['node_loads'] = node_loads
         details['f1_std'] = np.std(np.array(list(node_loads.values())))
 
@@ -429,7 +433,6 @@ class NSGA4_SFC:
         sol[rid] = self.repair_assignment_for_request(req, assignment)
         return sol
 
-
     def evolve(self):
         for _ in range(self.generations):
             new_population = []
@@ -454,29 +457,40 @@ class NSGA4_SFC:
 #############################################
 
 if __name__ == "__main__":
-    # 節點資料
+    # 節點資料（修改 load_per_unit 為 load_per_vnf，各 NODE 根據可處理的 VNF 定義不同負載係數）
     network_nodes = [
-        {'id': 'A', 'vnf_types': ['0', '1'], 'neighbors': ['B', 'C'], 'load_per_unit': 0.5,
+        {'id': 'A', 'vnf_types': ['0', '1'], 'neighbors': ['B', 'C'],
+         'load_per_vnf': {'0': 0.5, '1': 0.7},
          'processing_delay': {'0': 2, '1': 3}},
-        {'id': 'B', 'vnf_types': ['0', '2', "3"], 'neighbors': ['A', 'D', 'E'], 'load_per_unit': 0.6,
+        {'id': 'B', 'vnf_types': ['0', '2', '3'], 'neighbors': ['A', 'D', 'E'],
+         'load_per_vnf': {'0': 0.6, '2': 0.8, '3': 1.0},
          'processing_delay': {'0': 2.5, '2': 2, '3': 2}},
-        {'id': 'C', 'vnf_types': ['0', '3', '2'], 'neighbors': ['A', 'D', 'G', "F"], 'load_per_unit': 0.4,
+        {'id': 'C', 'vnf_types': ['0', '3', '2'], 'neighbors': ['A', 'D', 'G', 'F'],
+         'load_per_vnf': {'0': 0.55, '3': 0.65, '2': 0.75},
          'processing_delay': {'0': 3, '3': 1.5, '2': 2.5}},
-        {'id': 'D', 'vnf_types': ['0', '2', "3"], 'neighbors': ['B', 'C', "E", "G"], 'load_per_unit': 0.7,
+        {'id': 'D', 'vnf_types': ['0', '2', '3'], 'neighbors': ['B', 'C', 'E', 'G'],
+         'load_per_vnf': {'0': 0.6, '2': 0.85, '3': 0.95},
          'processing_delay': {'0': 3, '2': 1.8, '3': 2}},
-        {'id': 'E', 'vnf_types': ['3', '1'], 'neighbors': ['B', 'D', "H"], 'load_per_unit': 0.3,
+        {'id': 'E', 'vnf_types': ['3', '1'], 'neighbors': ['B', 'D', 'H'],
+         'load_per_vnf': {'3': 0.5, '1': 0.6},
          'processing_delay': {'3': 3, '1': 1.8}},
-        {'id': 'F', 'vnf_types': ['1', '3'], 'neighbors': ['C', 'I', "J"], 'load_per_unit': 0.4,
+        {'id': 'F', 'vnf_types': ['1', '3'], 'neighbors': ['C', 'I', 'J'],
+         'load_per_vnf': {'1': 0.7, '3': 0.8},
          'processing_delay': {'1': 3, '3': 1.8}},
-        {'id': 'G', 'vnf_types': ['1', '2'], 'neighbors': ['C', 'D', 'I', 'K', 'H'], 'load_per_unit': 0.8,
+        {'id': 'G', 'vnf_types': ['1', '2'], 'neighbors': ['C', 'D', 'I', 'K', 'H'],
+         'load_per_vnf': {'1': 0.65, '2': 0.75},
          'processing_delay': {'1': 3, '2': 1.8}},
-        {'id': 'H', 'vnf_types': ['0', '2', "3"], 'neighbors': ['E', 'G'], 'load_per_unit': 0.1,
+        {'id': 'H', 'vnf_types': ['0', '2', '3'], 'neighbors': ['E', 'G'],
+         'load_per_vnf': {'0': 0.55, '2': 0.65, '3': 0.75},
          'processing_delay': {'0': 3, '2': 1.8, '3': 2}},
-        {'id': 'I', 'vnf_types': ['0', '2'], 'neighbors': ['F', 'G', 'K'], 'load_per_unit': 0.8,
+        {'id': 'I', 'vnf_types': ['0', '2'], 'neighbors': ['F', 'G', 'K'],
+         'load_per_vnf': {'0': 0.6, '2': 0.7},
          'processing_delay': {'0': 3, '2': 1.8}},
-        {'id': 'J', 'vnf_types': ['2', '1'], 'neighbors': ['F', 'K'], 'load_per_unit': 0.6,
+        {'id': 'J', 'vnf_types': ['2', '1'], 'neighbors': ['F', 'K'],
+         'load_per_vnf': {'2': 0.7, '1': 0.8},
          'processing_delay': {'2': 3, '1': 1.8}},
-        {'id': 'K', 'vnf_types': ['1', "3"], 'neighbors': ['G', 'I', 'J'], 'load_per_unit': 0.5,
+        {'id': 'K', 'vnf_types': ['1', '3'], 'neighbors': ['G', 'I', 'J'],
+         'load_per_vnf': {'1': 0.55, '3': 0.65},
          'processing_delay': {'1': 1.8, '3': 2}},
     ]
 
@@ -517,7 +531,7 @@ if __name__ == "__main__":
         {'id': '3', 'chain': ['0', '3']},
     ]
 
-    population_size = 20
+    population_size = 100
     generations = 100
 
     nsga4_sfc = NSGA4_SFC(network_nodes, edges, sfc_requests, vnf_traffic, population_size, generations)
