@@ -286,34 +286,165 @@ class NSGA4_SFC:
         details['f3'] = 1 / (throughput_sum + epsilon)
         return details
 
-    # 此處省略非支配排序、交叉、變異等部分，請參考完整版本（內容一致）
-    # 為節省篇幅，下面僅保留 evolve 方法，其餘部分與前述版本一致
+    def fast_non_dominated_sort(self, population_fitness):
+        num_solutions = len(population_fitness)
+        ranks = np.zeros(num_solutions, dtype=int)
+        domination_counts = np.zeros(num_solutions, dtype=int)
+        dominated = [[] for _ in range(num_solutions)]
+        front = []
+        for i in range(num_solutions):
+            for j in range(i + 1, num_solutions):
+                if np.all(population_fitness[i] <= population_fitness[j]) and np.any(
+                        population_fitness[i] < population_fitness[j]):
+                    dominated[i].append(j)
+                    domination_counts[j] += 1
+                elif np.all(population_fitness[j] <= population_fitness[i]) and np.any(
+                        population_fitness[j] < population_fitness[i]):
+                    dominated[j].append(i)
+                    domination_counts[i] += 1
+            if domination_counts[i] == 0:
+                ranks[i] = 0
+                front.append(i)
+        i = 0
+        while front:
+            next_front = []
+            for p in front:
+                for q in dominated[p]:
+                    domination_counts[q] -= 1
+                    if domination_counts[q] == 0:
+                        ranks[q] = i + 1
+                        next_front.append(q)
+            front = next_front
+            i += 1
+        return ranks
+
+    def non_dominated_sort_by_front(self, population_fitness):
+        ranks = self.fast_non_dominated_sort(population_fitness)
+        fronts = {}
+        for i, r in enumerate(ranks):
+            fronts.setdefault(r, []).append(i)
+        sorted_fronts = [fronts[r] for r in sorted(fronts.keys())]
+        return sorted_fronts
+
+    def weighted_euclidean_distance(self, sol1, sol2):
+        vec1 = []
+        vec2 = []
+        for req in sorted(self.sfc_requests, key=lambda x: x['id']):
+            assignment1 = sol1[req['id']]
+            assignment2 = sol2[req['id']]
+            vec1.extend([float(ord(c)) for c in assignment1])
+            vec2.extend([float(ord(c)) for c in assignment2])
+        return np.linalg.norm(np.array(vec1) - np.array(vec2))
+
+    def selection(self):
+        pop = self.population.copy()
+        pop_fitness = np.array([self.compute_objectives(sol) for sol in pop])
+        fronts = self.non_dominated_sort_by_front(pop_fitness)
+        data_PR = []
+        total = 0
+        rank = 0
+        while rank < len(fronts) and total + len(fronts[rank]) <= 0.5 * self.population_size:
+            for idx in fronts[rank]:
+                data_PR.append((pop[idx], "Q1"))
+            total += len(fronts[rank])
+            rank += 1
+        if rank < len(fronts):
+            for idx in fronts[rank]:
+                if total < 1.5 * self.population_size:
+                    data_PR.append((pop[idx], "Q2"))
+                    total += 1
+                else:
+                    break
+        L = len(data_PR)
+        distance_matrix = np.zeros((L, L))
+        for i in range(L):
+            for j in range(i + 1, L):
+                d = self.weighted_euclidean_distance(data_PR[i][0], data_PR[j][0])
+                distance_matrix[i, j] = d
+                distance_matrix[j, i] = d
+        removed = set()
+        while L - len(removed) > self.population_size:
+            min_d = float('inf')
+            min_i, min_j = -1, -1
+            for i in range(L):
+                if i in removed:
+                    continue
+                for j in range(i + 1, L):
+                    if j in removed:
+                        continue
+                    if data_PR[i][1] == "Q1" and data_PR[j][1] == "Q1":
+                        continue
+                    if distance_matrix[i, j] < min_d:
+                        min_d = distance_matrix[i, j]
+                        min_i, min_j = i, j
+            if data_PR[min_i][1] == "Q2" and data_PR[min_j][1] == "Q2":
+                min_dist_i = float('inf')
+                min_dist_j = float('inf')
+                for k in range(L):
+                    if k in removed or k in [min_i, min_j]:
+                        continue
+                    min_dist_i = min(min_dist_i, distance_matrix[min_i, k])
+                    min_dist_j = min(min_dist_j, distance_matrix[min_j, k])
+                if min_dist_i < min_dist_j:
+                    removed.add(min_i)
+                else:
+                    removed.add(min_j)
+            elif data_PR[min_i][1] == "Q1" and data_PR[min_j][1] == "Q2":
+                removed.add(min_j)
+            elif data_PR[min_i][1] == "Q2" and data_PR[min_j][1] == "Q1":
+                removed.add(min_i)
+            else:
+                removed.add(min_j)
+        new_population = []
+        for i in range(L):
+            if i not in removed:
+                new_population.append(data_PR[i][0])
+        return np.array(new_population)
+
+    def crossover(self, parent1, parent2):
+        child1 = parent1.copy()
+        child2 = parent2.copy()
+        req_ids = list(parent1.keys())
+        if np.random.rand() < 0.9:
+            point = np.random.randint(1, len(req_ids))
+            for i in range(point, len(req_ids)):
+                rid = req_ids[i]
+                child1[rid], child2[rid] = child2[rid], child1[rid]
+        for req in self.sfc_requests:
+            child1[req['id']] = self.repair_assignment_for_request(req, child1[req['id']])
+            child2[req['id']] = self.repair_assignment_for_request(req, child2[req['id']])
+        return child1, child2
+
+    def mutation(self, solution):
+        sol = solution.copy()
+        req = np.random.choice(self.sfc_requests)
+        rid = req['id']
+        chain = req['chain']
+        assignment = sol[rid].copy()
+        pos = np.random.randint(0, len(assignment))
+        candidates = [node_id for node_id, node in self.network_nodes.items() if chain[pos] in node['vnf_types']]
+        if candidates:
+            assignment[pos] = np.random.choice(candidates)
+        sol[rid] = self.repair_assignment_for_request(req, assignment)
+        return sol
+
+
     def evolve(self):
-        # 簡單模擬演化過程（實際使用時請根據完整 NSGA4 設計）
         for _ in range(self.generations):
             new_population = []
-            selected = self.population  # 此處不做選擇操作，僅示意
+            selected = self.selection()
             pop_size = len(selected)
             for i in range(0, pop_size, 2):
                 parent1 = selected[i]
-                parent2 = selected[(i + 1) % pop_size]
-                # 交叉：直接交換部分請求 assignment
-                child1 = parent1.copy()
-                child2 = parent2.copy()
-                req_ids = list(parent1.keys())
-                point = np.random.randint(1, len(req_ids))
-                for j in range(point, len(req_ids)):
-                    rid = req_ids[j]
-                    child1[rid], child2[rid] = child2[rid], child1[rid]
-                new_population.extend([child1, child2])
+                parent2 = selected[(i+1) % pop_size]
+                child1, child2 = self.crossover(parent1, parent2)
+                new_population.append(self.mutation(child1))
+                new_population.append(self.mutation(child2))
             self.population = np.array(new_population[:self.population_size])
         pop = self.population.copy()
-        # 依照目標函數值進行簡單排序（此處僅示意，非真正的 NSGA4 非支配排序）
-        fitness = np.array([self.compute_objectives(sol) for sol in pop])
-        # 以 f1 + f2 + f3 總和排序（小值較好）
-        scores = np.sum(fitness, axis=1)
-        sorted_indices = np.argsort(scores)
-        pareto_front = [pop[i] for i in sorted_indices[:8]]  # 假設最佳解共 8 個
+        pop_fitness = np.array([self.compute_objectives(sol) for sol in pop])
+        fronts = self.non_dominated_sort_by_front(pop_fitness)
+        pareto_front = [pop[idx] for idx in fronts[0]]
         return np.array(pareto_front)
 
 
