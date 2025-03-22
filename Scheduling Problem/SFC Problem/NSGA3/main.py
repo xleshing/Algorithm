@@ -567,3 +567,5 @@ if __name__ == "__main__":
     axs[2].set_title('NSGA3 Delay vs Throughput')
     plt.tight_layout()
     plt.show()
+
+    df.to_csv('NSGA3_solutions_data.csv', index=False)

@@ -608,3 +608,5 @@ if __name__ == "__main__":
 
     plt.tight_layout()
     plt.show()
+
+    df.to_csv('NSGA4_solutions_data.csv', index=False)
