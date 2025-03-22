@@ -171,7 +171,6 @@ class NSGA3_SFC:
         return self.compute_objectives(solution)
 
     # 以下方法（快速非支配排序、正規化、參考點產生與關聯、niche selection）
-    # 與背包版本大致相同，不再贅述細節
     def fast_non_dominated_sort(self, population_fitness):
         num_solutions = len(population_fitness)
         ranks = np.zeros(num_solutions, dtype=int)
@@ -415,34 +414,69 @@ if __name__ == "__main__":
     # 3. load：單位流量負載
     # 4. processing_delay：各 VNF 處理延遲（字典）
     network_topology = {
-        0: {'vnf_types': ['A', 'B'], 'neighbors': [1, 2], 'load': 1.0, 'processing_delay': {'A': 2, 'B': 3}},
-        1: {'vnf_types': ['A', 'C'], 'neighbors': [0, 3], 'load': 1.2, 'processing_delay': {'A': 2.5, 'C': 2}},
-        2: {'vnf_types': ['B', 'C'], 'neighbors': [0, 3], 'load': 0.8, 'processing_delay': {'B': 3, 'C': 2.5}},
-        3: {'vnf_types': ['A', 'B', 'C'], 'neighbors': [1, 2], 'load': 1.1,
-            'processing_delay': {'A': 2, 'B': 3, 'C': 2}}
+        'A': {'vnf_types': ['0', '1'], 'neighbors': ['B', 'C'], 'load': 0.5,
+              'processing_delay': {'0': 2, '1': 3}},
+        'B': {'vnf_types': ['0', '2', "3"], 'neighbors': ['A', 'D', 'E'], 'load': 0.6,
+              'processing_delay': {'0': 2.5, '2': 2, '3': 2}},
+        'C': {'vnf_types': ['0', '3', '2'], 'neighbors': ['A', 'D', 'G', "F"], 'load': 0.4,
+              'processing_delay': {'0': 3, '3': 1.5, '2': 2.5}},
+        'D': {'vnf_types': ['0', '2', "3"], 'neighbors': ['B', 'C', "E", "G"], 'load': 0.7,
+              'processing_delay': {'0': 3, '2': 1.8, '3': 2}},
+        'E': {'vnf_types': ['3', '1'], 'neighbors': ['B', 'D', "H"], 'load': 0.3,
+              'processing_delay': {'3': 3, '1': 1.8}},
+        'F': {'vnf_types': ['1', '3'], 'neighbors': ['C', 'I', "J"], 'load': 0.4,
+              'processing_delay': {'1': 3, '3': 1.8}},
+        'G': {'vnf_types': ['1', '2'], 'neighbors': ['C', 'D', 'I', 'K', 'H'], 'load': 0.8,
+              'processing_delay': {'1': 3, '2': 1.8}},
+        'H': {'vnf_types': ['0', '2', "3"], 'neighbors': ['E', 'G'], 'load': 0.1,
+              'processing_delay': {'0': 3, '2': 1.8, '3': 2}},
+        'I': {'vnf_types': ['0', '2'], 'neighbors': ['F', 'G', 'K'], 'load': 0.8,
+              'processing_delay': {'0': 3, '2': 1.8}},
+        'J': {'vnf_types': ['2', '1'], 'neighbors': ['F', 'K'], 'load': 0.6,
+              'processing_delay': {'2': 3, '1': 1.8}},
+        'K': {'vnf_types': ['1', "3"], 'neighbors': ['G', 'I', 'J'], 'load': 0.5,
+              'processing_delay': {'1': 1.8, '3': 2}},
     }
 
-    # 定義邊與其容量（視為無向邊）
+    # 邊資訊 (無向邊)
     edges = {
-        (0, 1): 100,
-        (0, 2): 80,
-        (1, 3): 90,
-        (2, 3): 70
+        ('A', 'B'): 100,
+        ('A', 'C'): 80,
+        ('C', 'F'): 90,
+        ('F', 'J'): 70,
+        ('J', 'K'): 60,
+        ('K', 'G'): 60,
+        ('G', 'H'): 70,
+        ('H', 'E'): 80,
+        ('E', 'B'): 60,
+        ('D', 'B'): 40,
+        ('D', 'C'): 100,
+        ('D', 'G'): 40,
+        ('D', 'E'): 70,
+        ('C', 'G'): 50,
+        ('I', 'F'): 70,
+        ('I', 'G'): 80,
+        ('I', 'K'): 70,
     }
 
-    # 定義各 VNF 型號的流量需求（假設各為 10）
-    vnf_flow = {'A': 10, 'B': 10, 'C': 10}
+    # 定義各 VNF 流量需求
+    vnf_flow = {
+        '0': 10,
+        '1': 10,
+        '2': 10,
+        '3': 10,
+    }
 
-    # 定義 SFC 請求集合，每筆請求為一個 VNF chain
+    # 定義 4 個 SFC 請求（請求編號用 "0", "1", "2", "3"）
     requests = [
-        ['A', 'B', 'C'],
-        ['B', 'C'],
-        ['A', 'C'],
-        ['C', 'B', 'A']
+        ['0', '1', '2'],
+        ['2', '3'],
+        ['1', '3'],
+        ['0', '3'],
     ]
 
-    population_size = 10
-    generations = 30
+    population_size = 20
+    generations = 100
 
     # 三個目標函數依序為：節點負載均衡、端到端延遲、網路吞吐量
     objectives = [objective_node_load_balance, objective_end_to_end_delay, objective_throughput]
@@ -482,3 +516,38 @@ if __name__ == "__main__":
     df = pd.DataFrame(objectives_data)
     print("\n各目標函數的彙總數據：")
     print(df)
+    # === 3D 散點圖：三個目標 ===
+    fig = plt.figure(figsize=(10, 8))
+    ax = fig.add_subplot(111, projection='3d')
+    ax.scatter(df['LoadBalance'], df['Delay'], df['Throughput'], c='blue', marker='o')
+    ax.set_xlabel('LoadBalance')
+    ax.set_ylabel('Delay')
+    ax.set_zlabel('Throughput')
+    ax.set_title('NSGA3_direct Pareto Front')
+    ax.view_init(elev=30, azim=45)
+    plt.show()
+
+    # === 二維散點圖：兩兩目標比較 ===
+    fig, axs = plt.subplots(1, 3, figsize=(18, 5))
+
+    # LoadBalance 與 Delay
+    axs[0].scatter(df['LoadBalance'], df['Delay'], c='red', marker='o')
+    axs[0].set_xlabel('LoadBalance')
+    axs[0].set_ylabel('Delay')
+    axs[0].set_title('NSGA3_direct LoadBalance vs Delay')
+
+    # LoadBalance 與 Throughput
+    axs[1].scatter(df['LoadBalance'], df['Throughput'], c='green', marker='o')
+    axs[1].set_xlabel('LoadBalance')
+    axs[1].set_ylabel('Throughput')
+    axs[1].set_title('NSGA3_direct LoadBalance vs Throughput')
+
+    # Delay 與 Throughput
+    axs[2].scatter(df['Delay'], df['Throughput'], c='purple', marker='o')
+    axs[2].set_xlabel('Delay')
+    axs[2].set_ylabel('Throughput')
+    axs[2].set_title('NSGA3_direct Delay vs Throughput')
+
+    plt.tight_layout()
+    plt.show()
+

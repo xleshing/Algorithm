@@ -1,7 +1,8 @@
 import numpy as np
 import pandas as pd
 from collections import deque
-
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
 
 #############################################
 # 輔助函數：BFS 找最短路徑
@@ -451,107 +452,144 @@ class NSGA4_SFC:
 #############################################
 # 主程式設定與輸出
 #############################################
-# 節點資料
-network_nodes = [
-    {'id': 'A', 'vnf_types': ['0', '1'], 'neighbors': ['B', 'C'], 'load_per_unit': 0.5,
-     'processing_delay': {'0': 2, '1': 3}},
-    {'id': 'B', 'vnf_types': ['0', '2', "3"], 'neighbors': ['A', 'D', 'E'], 'load_per_unit': 0.6,
-     'processing_delay': {'0': 2.5, '2': 2, '3': 2}},
-    {'id': 'C', 'vnf_types': ['0', '3', '2'], 'neighbors': ['A', 'D', 'G', "F"], 'load_per_unit': 0.4,
-     'processing_delay': {'0': 3, '3': 1.5, '2': 2.5}},
-    {'id': 'D', 'vnf_types': ['0', '2', "3"], 'neighbors': ['B', 'C', "E", "G"], 'load_per_unit': 0.7,
-     'processing_delay': {'0': 3, '2': 1.8, '3': 2}},
-    {'id': 'E', 'vnf_types': ['3', '1'], 'neighbors': ['B', 'D', "H"], 'load_per_unit': 0.3,
-     'processing_delay': {'3': 3, '1': 1.8}},
-    {'id': 'F', 'vnf_types': ['1', '3'], 'neighbors': ['C', 'I', "J"], 'load_per_unit': 0.4,
-     'processing_delay': {'1': 3, '3': 1.8}},
-    {'id': 'G', 'vnf_types': ['1', '2'], 'neighbors': ['C', 'D', 'I', 'K', 'H'], 'load_per_unit': 0.8,
-     'processing_delay': {'1': 3, '2': 1.8}},
-    {'id': 'H', 'vnf_types': ['0', '2', "3"], 'neighbors': ['E', 'G'], 'load_per_unit': 0.1,
-     'processing_delay': {'0': 3, '2': 1.8, '3': 2}},
-    {'id': 'I', 'vnf_types': ['0', '2'], 'neighbors': ['F', 'G', 'K'], 'load_per_unit': 0.8,
-     'processing_delay': {'0': 3, '2': 1.8}},
-    {'id': 'J', 'vnf_types': ['2', '1'], 'neighbors': ['F', 'K'], 'load_per_unit': 0.6,
-     'processing_delay': {'2': 3, '1': 1.8}},
-    {'id': 'K', 'vnf_types': ['1', "3"], 'neighbors': ['G', 'I', 'J'], 'load_per_unit': 0.5,
-     'processing_delay': {'1': 1.8, '3': 2}},
-]
 
-# 邊資訊 (無向邊)
-edges = {
-    ('A', 'B'): 100,
-    ('A', 'C'): 80,
-    ('C', 'F'): 90,
-    ('F', 'J'): 70,
-    ('J', 'K'): 60,
-    ('K', 'G'): 60,
-    ('G', 'H'): 70,
-    ('H', 'E'): 80,
-    ('E', 'B'): 60,
-    ('D', 'B'): 40,
-    ('D', 'C'): 100,
-    ('D', 'G'): 40,
-    ('D', 'E'): 70,
-    ('C', 'G'): 50,
-    ('I', 'F'): 70,
-    ('I', 'G'): 80,
-    ('I', 'K'): 70,
-}
+if __name__ == "__main__":
+    # 節點資料
+    network_nodes = [
+        {'id': 'A', 'vnf_types': ['0', '1'], 'neighbors': ['B', 'C'], 'load_per_unit': 0.5,
+         'processing_delay': {'0': 2, '1': 3}},
+        {'id': 'B', 'vnf_types': ['0', '2', "3"], 'neighbors': ['A', 'D', 'E'], 'load_per_unit': 0.6,
+         'processing_delay': {'0': 2.5, '2': 2, '3': 2}},
+        {'id': 'C', 'vnf_types': ['0', '3', '2'], 'neighbors': ['A', 'D', 'G', "F"], 'load_per_unit': 0.4,
+         'processing_delay': {'0': 3, '3': 1.5, '2': 2.5}},
+        {'id': 'D', 'vnf_types': ['0', '2', "3"], 'neighbors': ['B', 'C', "E", "G"], 'load_per_unit': 0.7,
+         'processing_delay': {'0': 3, '2': 1.8, '3': 2}},
+        {'id': 'E', 'vnf_types': ['3', '1'], 'neighbors': ['B', 'D', "H"], 'load_per_unit': 0.3,
+         'processing_delay': {'3': 3, '1': 1.8}},
+        {'id': 'F', 'vnf_types': ['1', '3'], 'neighbors': ['C', 'I', "J"], 'load_per_unit': 0.4,
+         'processing_delay': {'1': 3, '3': 1.8}},
+        {'id': 'G', 'vnf_types': ['1', '2'], 'neighbors': ['C', 'D', 'I', 'K', 'H'], 'load_per_unit': 0.8,
+         'processing_delay': {'1': 3, '2': 1.8}},
+        {'id': 'H', 'vnf_types': ['0', '2', "3"], 'neighbors': ['E', 'G'], 'load_per_unit': 0.1,
+         'processing_delay': {'0': 3, '2': 1.8, '3': 2}},
+        {'id': 'I', 'vnf_types': ['0', '2'], 'neighbors': ['F', 'G', 'K'], 'load_per_unit': 0.8,
+         'processing_delay': {'0': 3, '2': 1.8}},
+        {'id': 'J', 'vnf_types': ['2', '1'], 'neighbors': ['F', 'K'], 'load_per_unit': 0.6,
+         'processing_delay': {'2': 3, '1': 1.8}},
+        {'id': 'K', 'vnf_types': ['1', "3"], 'neighbors': ['G', 'I', 'J'], 'load_per_unit': 0.5,
+         'processing_delay': {'1': 1.8, '3': 2}},
+    ]
 
-# 定義各 VNF 流量需求
-vnf_traffic = {
-    '0': 10,
-    '1': 10,
-    '2': 10,
-    '3': 10,
-}
+    # 邊資訊 (無向邊)
+    edges = {
+        ('A', 'B'): 100,
+        ('A', 'C'): 80,
+        ('C', 'F'): 90,
+        ('F', 'J'): 70,
+        ('J', 'K'): 60,
+        ('K', 'G'): 60,
+        ('G', 'H'): 70,
+        ('H', 'E'): 80,
+        ('E', 'B'): 60,
+        ('D', 'B'): 40,
+        ('D', 'C'): 100,
+        ('D', 'G'): 40,
+        ('D', 'E'): 70,
+        ('C', 'G'): 50,
+        ('I', 'F'): 70,
+        ('I', 'G'): 80,
+        ('I', 'K'): 70,
+    }
 
-# 定義 4 個 SFC 請求（請求編號用 "0", "1", "2", "3"）
-sfc_requests = [
-    {'id': '0', 'chain': ['0', '1', '2']},
-    {'id': '1', 'chain': ['2', '3']},
-    {'id': '2', 'chain': ['1', '3']},
-    {'id': '3', 'chain': ['0', '3']},
-]
+    # 定義各 VNF 流量需求
+    vnf_traffic = {
+        '0': 10,
+        '1': 10,
+        '2': 10,
+        '3': 10,
+    }
 
-population_size = 20
-generations = 50
+    # 定義 4 個 SFC 請求（請求編號用 "0", "1", "2", "3"）
+    sfc_requests = [
+        {'id': '0', 'chain': ['0', '1', '2']},
+        {'id': '1', 'chain': ['2', '3']},
+        {'id': '2', 'chain': ['1', '3']},
+        {'id': '3', 'chain': ['0', '3']},
+    ]
 
-nsga4_sfc = NSGA4_SFC(network_nodes, edges, sfc_requests, vnf_traffic, population_size, generations)
-pareto_front = nsga4_sfc.evolve()
+    population_size = 20
+    generations = 100
 
-# 建立 graph 用於 BFS (完整路徑)
-graph = {node_id: node['neighbors'] for node_id, node in {n['id']: n for n in network_nodes}.items()}
+    nsga4_sfc = NSGA4_SFC(network_nodes, edges, sfc_requests, vnf_traffic, population_size, generations)
+    pareto_front = nsga4_sfc.evolve()
 
-# 輸出格式
-print(f"最佳解 (Pareto Front) 共 {len(pareto_front)} 個：")
-for sol in pareto_front:
+    # 建立 graph 用於 BFS (完整路徑)
+    graph = {node_id: node['neighbors'] for node_id, node in {n['id']: n for n in network_nodes}.items()}
+
+    # 輸出格式
+    print(f"最佳解 (Pareto Front) 共 {len(pareto_front)} 個：")
+    for sol in pareto_front:
+        print("-----")
+        print("各請求的處理節點序列與完整路徑：")
+        for req in sfc_requests:
+            assignment = sol[req['id']]
+            complete_path = get_complete_path(assignment, graph)
+            print(f"請求 {req['id']}：處理節點 = {assignment}，完整路徑 = {complete_path}")
     print("-----")
-    print("各請求的處理節點序列與完整路徑：")
-    for req in sfc_requests:
-        assignment = sol[req['id']]
-        complete_path = get_complete_path(assignment, graph)
-        print(f"請求 {req['id']}：處理節點 = {assignment}，完整路徑 = {complete_path}")
-print("-----")
 
-# 輸出各目標函數結果
-for sol in pareto_front:
-    obj_vals = nsga4_sfc.compute_objectives(sol)
-    print("\n目標函數結果：")
-    print(f"節點負載均衡（標準差）： {obj_vals[0]:.4f}")
-    print(f"端到端延遲： {obj_vals[1]:.4f}")
-    print(f"網路吞吐量目標： {obj_vals[2]:.4f}")
+    # 輸出各目標函數結果
+    for sol in pareto_front:
+        obj_vals = nsga4_sfc.compute_objectives(sol)
+        print("\n目標函數結果：")
+        print(f"節點負載均衡（標準差）： {obj_vals[0]:.4f}")
+        print(f"端到端延遲： {obj_vals[1]:.4f}")
+        print(f"網路吞吐量目標： {obj_vals[2]:.4f}")
 
-# 收集所有解目標數據並以 DataFrame 彙總
-solutions_data = []
-for sol in pareto_front:
-    obj_vals = nsga4_sfc.compute_objectives(sol)
-    solutions_data.append({
-        'Solution': str(sol),
-        'LoadBalance': obj_vals[0],
-        'Delay': obj_vals[1],
-        'Throughput': obj_vals[2]
-    })
-df = pd.DataFrame(solutions_data)
-print("\n各目標函數的彙總數據：")
-print(df)
+    # 收集所有解目標數據並以 DataFrame 彙總
+    solutions_data = []
+    for sol in pareto_front:
+        obj_vals = nsga4_sfc.compute_objectives(sol)
+        solutions_data.append({
+            'Solution': str(sol),
+            'LoadBalance': obj_vals[0],
+            'Delay': obj_vals[1],
+            'Throughput': obj_vals[2]
+        })
+    df = pd.DataFrame(solutions_data)
+    print("\n各目標函數的彙總數據：")
+    print(df)
+
+    # === 3D 散點圖：三個目標 ===
+    fig = plt.figure(figsize=(10, 8))
+    ax = fig.add_subplot(111, projection='3d')
+    ax.scatter(df['LoadBalance'], df['Delay'], df['Throughput'], c='blue', marker='o')
+    ax.set_xlabel('LoadBalance')
+    ax.set_ylabel('Delay')
+    ax.set_zlabel('Throughput')
+    ax.set_title('NSGA4 Pareto Front')
+    ax.view_init(elev=30, azim=45)
+    plt.show()
+
+    # === 二維散點圖：兩兩目標比較 ===
+    fig, axs = plt.subplots(1, 3, figsize=(18, 5))
+
+    # LoadBalance 與 Delay
+    axs[0].scatter(df['LoadBalance'], df['Delay'], c='red', marker='o')
+    axs[0].set_xlabel('LoadBalance')
+    axs[0].set_ylabel('Delay')
+    axs[0].set_title('NSGA4 LoadBalance vs Delay')
+
+    # LoadBalance 與 Throughput
+    axs[1].scatter(df['LoadBalance'], df['Throughput'], c='green', marker='o')
+    axs[1].set_xlabel('LoadBalance')
+    axs[1].set_ylabel('Throughput')
+    axs[1].set_title('NSGA4 LoadBalance vs Throughput')
+
+    # Delay 與 Throughput
+    axs[2].scatter(df['Delay'], df['Throughput'], c='purple', marker='o')
+    axs[2].set_xlabel('Delay')
+    axs[2].set_ylabel('Throughput')
+    axs[2].set_title('NSGA4 Delay vs Throughput')
+
+    plt.tight_layout()
+    plt.show()

@@ -493,7 +493,7 @@ if __name__ == "__main__":
     ]
 
     population_size = 20
-    generations = 50
+    generations = 100
 
     nsga4_sfc = NSGA4_SFC(network_nodes, edges, sfc_requests, vnf_traffic, population_size, generations)
     pareto_front = nsga4_sfc.evolve()
@@ -532,3 +532,38 @@ if __name__ == "__main__":
     df["Solution"] = df["Solution"].apply(lambda sol: str(sol))
     print("\n各目標函數的彙總數據：")
     print(df)
+
+    # === 3D 散點圖：三個目標 ===
+    fig = plt.figure(figsize=(10, 8))
+    ax = fig.add_subplot(111, projection='3d')
+    ax.scatter(df['LoadBalance'], df['Delay'], df['Throughput'], c='blue', marker='o')
+    ax.set_xlabel('LoadBalance')
+    ax.set_ylabel('Delay')
+    ax.set_zlabel('Throughput')
+    ax.set_title('NSGA4_direct Pareto Front')
+    ax.view_init(elev=30, azim=45)
+    plt.show()
+
+    # === 二維散點圖：兩兩目標比較 ===
+    fig, axs = plt.subplots(1, 3, figsize=(18, 5))
+
+    # LoadBalance 與 Delay
+    axs[0].scatter(df['LoadBalance'], df['Delay'], c='red', marker='o')
+    axs[0].set_xlabel('LoadBalance')
+    axs[0].set_ylabel('Delay')
+    axs[0].set_title('NSGA4_direct LoadBalance vs Delay')
+
+    # LoadBalance 與 Throughput
+    axs[1].scatter(df['LoadBalance'], df['Throughput'], c='green', marker='o')
+    axs[1].set_xlabel('LoadBalance')
+    axs[1].set_ylabel('Throughput')
+    axs[1].set_title('NSGA4_direct LoadBalance vs Throughput')
+
+    # Delay 與 Throughput
+    axs[2].scatter(df['Delay'], df['Throughput'], c='purple', marker='o')
+    axs[2].set_xlabel('Delay')
+    axs[2].set_ylabel('Throughput')
+    axs[2].set_title('NSGA4_direct Delay vs Throughput')
+
+    plt.tight_layout()
+    plt.show()
