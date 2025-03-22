@@ -541,6 +541,7 @@ if __name__ == "__main__":
     ax.set_ylabel('Delay')
     ax.set_zlabel('Throughput')
     ax.set_title('NSGA4_direct Pareto Front')
+    ax.set_box_aspect([1, 1, 1])
     ax.view_init(elev=30, azim=45)
     plt.show()
 
