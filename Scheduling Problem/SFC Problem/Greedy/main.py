@@ -1,18 +1,20 @@
 import numpy as np
 import pandas as pd
 from collections import deque
+import itertools
+import copy
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
-import random
-
 
 #############################################
-# 輔助函數：BFS 找最短路徑
+# BFS 找最短路徑
 #############################################
 def bfs_shortest_path(graph, start, goal):
     """
     使用 BFS 找出從 start 到 goal 的最短路徑（以節點列表回傳），若無路徑則回傳 None
     """
+    if start == goal:
+        return [start]
     visited = set()
     queue = deque([[start]])
     while queue:
@@ -29,63 +31,64 @@ def bfs_shortest_path(graph, start, goal):
     return None
 
 
-def get_complete_path(assignment, graph):
-    """
-    根據一筆 SFC 的處理節點 assignment，
-    利用 BFS 找出相鄰處理節點間的完整路徑，並將所有段落串接成一個完整的物理路徑
-    """
-    complete_path = []
-    for i in range(len(assignment) - 1):
-        segment = bfs_shortest_path(graph, assignment[i], assignment[i + 1])
-        if segment is None:
-            segment = [assignment[i], assignment[i + 1]]
-        if i == 0:
-            complete_path.extend(segment)
-        else:
-            complete_path.extend(segment[1:])  # 避免重複加入前一段的終點
-    return complete_path
-
-
 #############################################
-# 獨立目標函數定義
+# 三個目標函數 (針對「多條 SFC」的完整解)
 #############################################
 def objective_load_balance(solution, network_nodes, sfc_requests, vnf_traffic):
     """
-    目標1：最小化節點負載均衡
-    累計各節點處理 VNF 流量後的負載，回傳所有節點負載的標準差
+    目標1：最小化節點負載均衡（以節點負載標準差衡量）
+
+    solution 的形式: {
+        sfc_id_1: [nodeX, nodeY, ...],
+        sfc_id_2: [nodeA, nodeB, ...],
+        ...
+    }
     """
     node_loads = {node_id: 0.0 for node_id in network_nodes.keys()}
     for req in sfc_requests:
         chain = req['chain']
-        assignment = solution[req['id']]
+        assignment = solution[req['id']]  # 該 SFC 的節點指派序列
+        # 假設整條 chain 使用 chain[0] 的需求量當作流量(僅示範用)
+        demand = vnf_traffic[chain[0]]
         for i, node_id in enumerate(assignment):
-            demand = vnf_traffic[chain[0]]
-            load_factor = network_nodes[node_id]['load_per_vnf'][chain[i]]
+            vnf = chain[i]
+            load_factor = network_nodes[node_id]['load_per_vnf'][vnf]
             node_loads[node_id] += demand * load_factor
-    return np.std(np.array(list(node_loads.values())))
+    loads_array = np.array(list(node_loads.values()))
+    return np.std(loads_array)
 
 
 def objective_end_to_end_delay_bfs(solution, network_nodes, edges, sfc_requests, vnf_traffic):
     """
     目標2：最小化端到端延遲
-    累計各 SFC 中節點處理延遲與沿邊延遲（demand/capacity）的總和
+    - 節點處理延遲 + 邊延遲
     """
     graph = {node_id: network_nodes[node_id]['neighbors'] for node_id in network_nodes}
     total_delay = 0.0
     for req in sfc_requests:
         chain = req['chain']
-        demand = vnf_traffic[chain[0]]
         assignment = solution[req['id']]
-        node_delay = sum(network_nodes[assignment[i]]['processing_delay'][chain[i]] for i in range(len(assignment)))
+        demand = vnf_traffic[chain[0]]
+        # 節點延遲
+        node_delay = 0.0
+        for i, node_id in enumerate(assignment):
+            vnf = chain[i]
+            node_delay += network_nodes[node_id]['processing_delay'][vnf]
+        # 邊延遲
         edge_delay = 0.0
         for i in range(len(assignment) - 1):
             path = bfs_shortest_path(graph, assignment[i], assignment[i + 1])
-            if path is None:
-                edge_delay += 1e6
+            if not path:
+                edge_delay += 1e6  # 懲罰
             else:
                 for j in range(len(path) - 1):
-                    n1, n2 = path[j], path[j + 1]
-                    cap = edges.get((n1, n2), edges.get((n2, n1), 1e-6))
+                    n1, n2 = path[j], path[j+1]
+                    if (n1, n2) in edges:
+                        cap = edges[(n1, n2)]
+                    elif (n2, n1) in edges:
+                        cap = edges[(n2, n1)]
+                    else:
+                        cap = 1e-6
                     edge_delay += demand / cap
         total_delay += (node_delay + edge_delay)
     return total_delay
@@ -93,174 +96,213 @@ def objective_end_to_end_delay_bfs(solution, network_nodes, edges, sfc_requests,
 
 def objective_network_throughput(solution, edges, sfc_requests, vnf_traffic):
     """
-    目標3：最大化網路吞吐量（取倒數以達到最小化效果）
-    累計每條邊的利用率後取倒數
+    目標3：最大化網路吞吐量（取倒數 => 越小越好）
     """
     # 建立無向圖
     graph = {}
     for (n1, n2) in edges:
         graph.setdefault(n1, []).append(n2)
         graph.setdefault(n2, []).append(n1)
+
     edge_flow = {edge: 0.0 for edge in edges.keys()}
     for req in sfc_requests:
-        demand = vnf_traffic[req['chain'][0]]
+        chain = req['chain']
         assignment = solution[req['id']]
+        demand = vnf_traffic[chain[0]]
         for i in range(len(assignment) - 1):
-            path = bfs_shortest_path(graph, assignment[i], assignment[i + 1])
+            path = bfs_shortest_path(graph, assignment[i], assignment[i+1])
             if path is None:
                 continue
             for j in range(len(path) - 1):
-                n1, n2 = path[j], path[j + 1]
+                n1, n2 = path[j], path[j+1]
                 if (n1, n2) in edges:
                     edge_flow[(n1, n2)] += demand
                 elif (n2, n1) in edges:
                     edge_flow[(n2, n1)] += demand
-    throughput_sum = sum(flow / edges[edge] for edge, flow in edge_flow.items())
+
+    throughput_sum = 0.0
+    for edge, flow in edge_flow.items():
+        throughput_sum += (flow / edges[edge])
     epsilon = 1e-6
     return 1 / (throughput_sum + epsilon)
 
 
 #############################################
-# NSGreedy 類別 (Greedy 版本)
+# 非支配比較
 #############################################
-def dominates(obj1, obj2):
+def is_dominated(objA, objB):
     """
-    判斷 obj1 是否完全支配 obj2（目標值皆較小且至少一項嚴格較小）
-    obj1、obj2 均為目標值的 np.array（順序分別為 [f1, f2, f3]，其中目標皆為 minimization）
+    A_dom_B = True 代表 A 支配 B (三目標都 <= 且至少一個 <)
+    這裡的目標越小越好
     """
-    return np.all(obj1 <= obj2) and np.any(obj1 < obj2)
+    A_dom_B = (all(a <= b for a,b in zip(objA,objB)) and any(a < b for a,b in zip(objA,objB)))
+    B_dom_A = (all(b <= a for a,b in zip(objA,objB)) and any(b < a for a,b in zip(objA,objB)))
+    return A_dom_B, B_dom_A
 
 
+def non_dominated_insert(front, new_sol, new_obj):
+    dominated_by_others = False
+    dominates_list = []
+    for (sol, obj) in front:
+        A_dom_B, B_dom_A = is_dominated(new_obj, obj)
+        if B_dom_A:
+            # 代表 front 中的解支配 new_sol => 丟棄
+            dominated_by_others = True
+            break
+        if A_dom_B:
+            # new_sol 支配 front 中的 (sol, obj) => 之後要移除
+            dominates_list.append((sol, obj))
+    if dominated_by_others:
+        return front  # 丟棄 new_sol
+
+    # 移除被 new_sol 支配的
+    updated = []
+    for item in front:
+        if item not in dominates_list:
+            updated.append(item)
+    # 加入 new_sol
+    updated.append((new_sol, new_obj))
+    return updated
+
+
+#############################################
+# 主要類別：NSGreedy
+#############################################
 class NSGreedy:
-    def __init__(self, network_nodes, edges, sfc_requests, vnf_traffic, population_size, generations):
-        """
-        參數說明：
-          network_nodes: 節點列表，每個元素包含 'id'、'vnf_types'、'neighbors'、'load_per_vnf'、'processing_delay'
-          edges: 邊的字典
-          sfc_requests: SFC 請求列表，每筆請求包含 'id' 與 'chain'
-          vnf_traffic: 各 VNF 所需流量
-          population_size: 用於產生多筆 Greedy 解（後續排序選取前 10 筆）
-          generations: 不使用（保留參數）
-        """
-        self.network_nodes = {node['id']: node for node in network_nodes}
+    def __init__(self, network_nodes, edges, sfc_requests, vnf_traffic):
+        self.network_nodes = {n['id']: n for n in network_nodes}
         self.edges = edges
         self.sfc_requests = sfc_requests
         self.vnf_traffic = vnf_traffic
-        self.population_size = population_size
-        self.generations = generations
-        self.population = None
-
-    def repair_assignment_for_request(self, req, assignment):
-        """
-        檢查並修正 assignment 中是否分配了能處理對應 VNF 的節點
-        """
-        chain = req['chain']
-        for i in range(len(assignment)):
-            if chain[i] not in self.network_nodes[assignment[i]]['vnf_types']:
-                candidates = [node_id for node_id, node in self.network_nodes.items() if chain[i] in node['vnf_types']]
-                assignment[i] = np.random.choice(candidates) if candidates else None
-        return assignment
+        # 做 BFS 用的 graph
+        self.bfs_graph = {n['id']: n['neighbors'] for n in network_nodes}
 
     def compute_objectives(self, solution):
+        """
+        給定「多 SFC 完整解」(dict: sfc_id -> [node...])，計算三目標
+        """
         f1 = objective_load_balance(solution, self.network_nodes, self.sfc_requests, self.vnf_traffic)
-        f2 = objective_end_to_end_delay_bfs(solution, self.network_nodes, self.edges, self.sfc_requests,
-                                            self.vnf_traffic)
+        f2 = objective_end_to_end_delay_bfs(solution, self.network_nodes, self.edges, self.sfc_requests, self.vnf_traffic)
         f3 = objective_network_throughput(solution, self.edges, self.sfc_requests, self.vnf_traffic)
-        return np.array([f1, f2, f3])
+        return (f1, f2, f3)
 
-    #############################################
-    # Greedy 演算法：依序為每個 SFC 選擇處理節點（加入隨機打亂以增添多樣性）
-    #############################################
-    def greedy_solution(self):
-        solution = {}
-        bfs_graph = {node_id: self.network_nodes[node_id]['neighbors'] for node_id in self.network_nodes}
-        for req in self.sfc_requests:
-            chain = req['chain']
-            assignment = []
-            for i, vnf in enumerate(chain):
-                candidates = [node_id for node_id, node in self.network_nodes.items() if vnf in node['vnf_types']]
-                # 隨機打亂候選順序
-                random.shuffle(candidates)
-                best_candidate = None
-                best_cost = float('inf')
-                for candidate in candidates:
-                    cost = self.network_nodes[candidate]['processing_delay'][vnf]
-                    if i > 0:
-                        prev_node = assignment[i - 1]
-                        path = bfs_shortest_path(bfs_graph, prev_node, candidate)
+    def non_dominated_insert(self, front, new_sol, new_obj):
+        return non_dominated_insert(front, new_sol, new_obj)
+
+    def evolve_one_sfc(self, req):
+        """
+        示範：對「單一 SFC」做簡單的 Greedy + 非支配比較
+        回傳該 SFC 的一組「完整解」 => [(sol, obj), ...]
+        sol = [node1, node2, ...]
+        """
+        chain = req['chain']
+        sfc_id = req['id']
+
+        # 初始
+        solution_front = []
+
+        for i, vnf in enumerate(chain):
+            if i == 0:
+                # 第一個 VNF
+                candidates = [nid for nid, nd in self.network_nodes.items() if vnf in nd['vnf_types']]
+                if not candidates:
+                    # 沒得選 => 無解
+                    return []
+                new_front = []
+                for c in candidates:
+                    # 先把 sol 存下來(尚未計算真正目標)
+                    # 這裡先用 (sol, (0,0,0)) 佔位
+                    sol = [c]
+                    placeholder_obj = (0, 0, 0)
+                    new_front.append((sol, placeholder_obj))
+                solution_front = new_front
+            else:
+                # 擴展
+                next_front = []
+                for (sol, pobj) in solution_front:
+                    last_node = sol[-1]
+                    candidates = [nid for nid, nd in self.network_nodes.items() if vnf in nd['vnf_types']]
+                    if not candidates:
+                        continue
+                    for c in candidates:
+                        # 檢查 last_node -> c BFS
+                        path = bfs_shortest_path(self.bfs_graph, last_node, c)
                         if path is None:
-                            edge_cost = 1e6
-                        else:
-                            edge_cost = 0.0
-                            demand = self.vnf_traffic[chain[0]]
-                            for j in range(len(path) - 1):
-                                n1, n2 = path[j], path[j + 1]
-                                cap = self.edges.get((n1, n2), self.edges.get((n2, n1), 1e-6))
-                                edge_cost += demand / cap
-                        cost += edge_cost
-                    if cost < best_cost:
-                        best_cost = cost
-                        best_candidate = candidate
-                assignment.append(best_candidate)
-            solution[req['id']] = assignment
-        return solution
+                            continue
+                        new_sol = sol + [c]
+                        placeholder_obj = (0,0,0)
+                        # 加入 next_front 時先做非支配插入
+                        next_front = non_dominated_insert(next_front, new_sol, placeholder_obj)
+                solution_front = next_front
 
-    #############################################
-    # Greedy 演算法入口：產生多筆解，排序後取前 10 筆作為 Pareto 前緣
-    #############################################
+        # 到這裡表示整個 chain 都分配完 => 重新計算真實三目標
+        final_solutions = []
+        for (sol, _) in solution_front:
+            # 組成只含該 SFC 的 dict => { sfc_id: sol }
+            big_sol = {req['id']: sol}
+            # 其餘 SFC 不處理 => 空
+            for other_req in self.sfc_requests:
+                if other_req['id'] != sfc_id:
+                    big_sol[other_req['id']] = []
+            obj_val = self.compute_objectives(big_sol)
+            final_solutions.append((sol, obj_val))
+
+        # 再做一次非支配篩選
+        final_nd = []
+        for (sol, obj) in final_solutions:
+            final_nd = self.non_dominated_insert(final_nd, sol, obj)
+        return final_nd
+
+    def combine_all_sfc_solutions(self, all_sfc_solutions):
+        """
+        針對所有 SFC 的解做「排列組合 (笛卡兒積)」，把每條 SFC 的解拼接成「大解」，計算新目標並做非支配比較。
+
+        all_sfc_solutions: dict[sfc_id] = list of (sol, obj)
+           - sol: 針對該 sfc_id 的指派序列 (e.g. [nodeA, nodeB,...])
+           - obj: 只是個暫存，最終要重新計算「整合後」的大解的三目標
+        回傳: final_nd => 多條 SFC 同時分配的非支配解 [(big_sol_dict, (f1,f2,f3)), ...]
+        """
+        sfc_ids = list(all_sfc_solutions.keys())
+        # 把每個 SFC 的解集合收集成 list
+        solutions_list = [all_sfc_solutions[sid] for sid in sfc_ids]
+
+        final_nd = []
+        # 用 itertools.product 做排列組合
+        for combo in itertools.product(*solutions_list):
+            # combo = ( (solA, objA), (solB, objB), ... ) 各自屬於不同 SFC
+            big_sol = {}
+            for i, sid in enumerate(sfc_ids):
+                big_sol[sid] = combo[i][0]  # 取出指派序列
+            # 用 compute_objectives 計算「n 個 SFC」同時分配的三目標
+            new_obj = self.compute_objectives(big_sol)
+            # 再做非支配插入
+            final_nd = self.non_dominated_insert(final_nd, big_sol, new_obj)
+
+        return final_nd
+
     def evolve(self):
         """
-        使用 Greedy 方式產生候選解，再以非支配排序的方式更新解集合：
-          - 初始集合 S 用第一個 Greedy 解建立。
-          - 每次產生新解 candidate，計算其目標值。
-          - 與 S 中所有解比較：
-              * 若 candidate 被 S 中任一解支配，則捨棄 candidate。
-              * 否則，移除 S 中被 candidate 完全支配的解，並將 candidate 加入 S。
-        最後回傳非支配解集合 S（只回傳解，不回傳目標值）。
+        主流程:
+         1) 逐條 SFC 呼叫 evolve_one_sfc -> 得到該 SFC 的一批解
+         2) 把每條 SFC 的解集合儲存起來
+         3) 最後呼叫 combine_all_sfc_solutions, 針對所有 SFC 解做排列組合，計算多條 SFC 同時分配的真實三目標
+         4) 用非支配比較獲得最終的 Pareto front
         """
-        S = []  # 存放 (solution, objective_vector) tuple 的集合
-        # 初始解
-        initial_sol = self.greedy_solution()
-        initial_obj = self.compute_objectives(initial_sol)
-        S.append((initial_sol, initial_obj))
+        all_sfc_solutions = {}
+        for req in self.sfc_requests:
+            nd_set = self.evolve_one_sfc(req)  # list of (sol, obj)
+            all_sfc_solutions[req['id']] = nd_set
 
-        # 進行多代更新
-        for gen in range(self.generations):
-            candidate = self.greedy_solution()
-            candidate_obj = self.compute_objectives(candidate)
-
-            # 標記是否應該捨棄 candidate
-            discard = False
-            dominated_indices = []
-            for i, (sol, sol_obj) in enumerate(S):
-                if dominates(sol_obj, candidate_obj):
-                    # S 中已有解完全支配 candidate，捨棄 candidate
-                    discard = True
-                    break
-                if dominates(candidate_obj, sol_obj):
-                    # candidate 完全支配 S 中的某個解，記錄該解索引，稍後移除
-                    dominated_indices.append(i)
-            if discard:
-                continue  # 捨棄 candidate，進入下一代
-            else:
-                # 若 candidate 完全支配所有 S 中的解，可直接清空 S（或移除被支配的解）
-                if len(dominated_indices) == len(S):
-                    S = [(candidate, candidate_obj)]
-                else:
-                    # 移除被 candidate 支配的解
-                    S = [entry for i, entry in enumerate(S) if i not in dominated_indices]
-                    # 將 candidate 加入 S
-                    S.append((candidate, candidate_obj))
-        # 最後回傳 S 中的所有解（不包含目標值）
-        pareto_solutions = [sol for sol, obj in S]
-        return np.array(pareto_solutions)
+        # 最後合併 => 多條 SFC 的解 全部做「笛卡兒積」=> 計算真正的多 SFC 同時分配目標
+        final_nd = self.combine_all_sfc_solutions(all_sfc_solutions)
+        return final_nd
 
 
 #############################################
-# 主程式設定與輸出
+# 主程式測試
 #############################################
 if __name__ == "__main__":
-    # 節點資料
+    # 節點
     network_nodes = [
         {'id': 'A', 'vnf_types': ['0', '1'], 'neighbors': ['B', 'C'],
          'load_per_vnf': {'0': 0.5, '1': 0.7},
@@ -297,7 +339,6 @@ if __name__ == "__main__":
          'processing_delay': {'1': 1.8, '3': 2}},
     ]
 
-    # 邊資訊 (無向邊)
     edges = {
         ('A', 'B'): 100,
         ('A', 'C'): 80,
@@ -318,7 +359,6 @@ if __name__ == "__main__":
         ('I', 'K'): 70,
     }
 
-    # 定義各 VNF 流量需求
     vnf_traffic = {
         '0': 10,
         '1': 10,
@@ -326,7 +366,6 @@ if __name__ == "__main__":
         '3': 10,
     }
 
-    # 定義 4 個 SFC 請求
     sfc_requests = [
         {'id': '0', 'chain': ['0', '1', '2']},
         {'id': '1', 'chain': ['2', '3']},
@@ -334,74 +373,60 @@ if __name__ == "__main__":
         {'id': '3', 'chain': ['0', '3']},
     ]
 
-    population_size = 100  # 此版本未使用
-    generations = 100      # 用來產生多筆解的次數
+    solver = NSGreedy(network_nodes, edges, sfc_requests, vnf_traffic)
+    final_solutions = solver.evolve()
 
-    ns_greedy = NSGreedy(network_nodes, edges, sfc_requests, vnf_traffic, population_size, generations)
-    pareto_front = ns_greedy.evolve()
-
-    # 建立 graph 用於 BFS (完整路徑)
-    graph = {node_id: node['neighbors'] for node_id, node in {n['id']: n for n in network_nodes}.items()}
-
-    print(f"最佳解 (Pareto Front) 共 {len(pareto_front)} 筆：")
-    for sol in pareto_front:
-        print("-----")
-        print("各請求的處理節點序列與完整路徑：")
+    print(f"最終多 SFC 非支配解數量: {len(final_solutions)}")
+    df_data = []
+    for idx, (big_sol, obj) in enumerate(final_solutions, start=1):
+        print(f"--- 解 #{idx} ---")
+        print("  大解 (對每條 SFC 的指派):")
         for req in sfc_requests:
-            assignment = sol[req['id']]
-            complete_path = get_complete_path(assignment, graph)
-            print(f"請求 {req['id']}：處理節點 = {assignment}，完整路徑 = {complete_path}")
-    print("-----")
-
-    # 輸出各目標函數結果
-    for sol in pareto_front:
-        obj_vals = ns_greedy.compute_objectives(sol)
-        print("\n目標函數結果：")
-        print(f"節點負載均衡（標準差）： {obj_vals[0]:.4f}")
-        print(f"端到端延遲： {obj_vals[1]:.4f}")
-        print(f"網路吞吐量目標： {obj_vals[2]:.4f}")
-
-    # 收集所有解目標數據並以 DataFrame 彙總
-    solutions_data = []
-    for sol in pareto_front:
-        obj_vals = ns_greedy.compute_objectives(sol)
-        solutions_data.append({
-            'Solution': str(sol),
-            'LoadBalance': obj_vals[0],
-            'Delay': obj_vals[1],
-            'Throughput': obj_vals[2]
+            print(f"    SFC {req['id']}: {big_sol[req['id']]}")
+        print(f"  目標 (LoadBalance, Delay, 1/Throughput) = {obj}")
+        df_data.append({
+            'Solution': str(big_sol),
+            'LoadBalance': obj[0],
+            'Delay': obj[1],
+            'Throughput': obj[2]
         })
-    df = pd.DataFrame(solutions_data)
-    print("\n各目標函數的彙總數據：")
-    print(df)
 
-    # === 3D 散點圖：三個目標 ===
-    fig = plt.figure(figsize=(10, 8))
-    ax = fig.add_subplot(111, projection='3d')
-    ax.scatter(df['LoadBalance'], df['Delay'], df['Throughput'], c='blue', marker='o')
-    ax.set_xlabel('LoadBalance')
-    ax.set_ylabel('Delay')
-    ax.set_zlabel('Throughput')
-    ax.set_title('Greedy Pareto Front')
-    ax.set_box_aspect([1, 1, 1])
-    ax.view_init(elev=30, azim=45)
-    plt.show()
+    if df_data:
+        df = pd.DataFrame(df_data)
+        print(df)
+        # 3D Scatter
+        fig = plt.figure(figsize=(10, 7))
+        ax = fig.add_subplot(111, projection='3d')
+        ax.scatter(df['LoadBalance'], df['Delay'], df['Throughput'], marker='o')
+        ax.set_xlabel('LoadBalance')
+        ax.set_ylabel('Delay')
+        ax.set_zlabel('1 / (Sum Util)')
+        ax.set_title('Final Pareto Front (All SFC Combined)')
+        ax.set_box_aspect([1, 1, 1])
+        ax.view_init(elev=30, azim=45)
+        plt.show()
 
-    # === 二維散點圖：兩兩目標比較 ===
-    fig, axs = plt.subplots(1, 3, figsize=(18, 5))
-    axs[0].scatter(df['LoadBalance'], df['Delay'], c='red', marker='o')
-    axs[0].set_xlabel('LoadBalance')
-    axs[0].set_ylabel('Delay')
-    axs[0].set_title('LoadBalance vs Delay')
-    axs[1].scatter(df['LoadBalance'], df['Throughput'], c='green', marker='o')
-    axs[1].set_xlabel('LoadBalance')
-    axs[1].set_ylabel('Throughput')
-    axs[1].set_title('LoadBalance vs Throughput')
-    axs[2].scatter(df['Delay'], df['Throughput'], c='purple', marker='o')
-    axs[2].set_xlabel('Delay')
-    axs[2].set_ylabel('Throughput')
-    axs[2].set_title('Delay vs Throughput')
-    plt.tight_layout()
-    plt.show()
+        # 2D Scatter
+        fig, axs = plt.subplots(1, 3, figsize=(18, 5))
+        axs[0].scatter(df['LoadBalance'], df['Delay'], marker='o')
+        axs[0].set_xlabel('LoadBalance')
+        axs[0].set_ylabel('Delay')
+        axs[0].set_title('LoadBalance vs Delay')
 
-    df.to_csv('NSGreedy_solutions_data.csv', index=False)
+        axs[1].scatter(df['LoadBalance'], df['Throughput'], marker='o')
+        axs[1].set_xlabel('LoadBalance')
+        axs[1].set_ylabel('1 / (Sum Util)')
+        axs[1].set_title('LoadBalance vs Throughput')
+
+        axs[2].scatter(df['Delay'], df['Throughput'], marker='o')
+        axs[2].set_xlabel('Delay')
+        axs[2].set_ylabel('1 / (Sum Util)')
+        axs[2].set_title('Delay vs Throughput')
+
+        plt.tight_layout()
+        plt.show()
+
+        df.to_csv('NSGreedy_solutions_data.csv', index=False)
+
+    else:
+        print("No feasible solutions found!")
