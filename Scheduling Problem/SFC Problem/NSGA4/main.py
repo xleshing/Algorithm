@@ -2,7 +2,8 @@ import numpy as np
 import pandas as pd
 from collections import deque
 import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D
+import time
+
 
 #############################################
 # 輔助函數：BFS 找最短路徑
@@ -440,7 +441,7 @@ class NSGA4_SFC:
             pop_size = len(selected)
             for i in range(0, pop_size, 2):
                 parent1 = selected[i]
-                parent2 = selected[(i+1) % pop_size]
+                parent2 = selected[(i + 1) % pop_size]
                 child1, child2 = self.crossover(parent1, parent2)
                 new_population.append(self.mutation(child1))
                 new_population.append(self.mutation(child2))
@@ -531,11 +532,16 @@ if __name__ == "__main__":
         {'id': '3', 'chain': ['0', '3']},
     ]
 
-    population_size = 100
+    population_size = 20
     generations = 100
 
     nsga4_sfc = NSGA4_SFC(network_nodes, edges, sfc_requests, vnf_traffic, population_size, generations)
+
+    start_time = time.time()
     pareto_front = nsga4_sfc.evolve()
+    end_time = time.time()
+    execution_time = end_time - start_time
+    print("程式執行時間：", execution_time, "秒")
 
     # 建立 graph 用於 BFS (完整路徑)
     graph = {node_id: node['neighbors'] for node_id, node in {n['id']: n for n in network_nodes}.items()}

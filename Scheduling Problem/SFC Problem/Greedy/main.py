@@ -2,9 +2,10 @@ import numpy as np
 import pandas as pd
 from collections import deque
 import itertools
-import copy
+import time
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
+
 
 #############################################
 # BFS 找最短路徑
@@ -82,7 +83,7 @@ def objective_end_to_end_delay_bfs(solution, network_nodes, edges, sfc_requests,
                 edge_delay += 1e6  # 懲罰
             else:
                 for j in range(len(path) - 1):
-                    n1, n2 = path[j], path[j+1]
+                    n1, n2 = path[j], path[j + 1]
                     if (n1, n2) in edges:
                         cap = edges[(n1, n2)]
                     elif (n2, n1) in edges:
@@ -110,11 +111,11 @@ def objective_network_throughput(solution, edges, sfc_requests, vnf_traffic):
         assignment = solution[req['id']]
         demand = vnf_traffic[chain[0]]
         for i in range(len(assignment) - 1):
-            path = bfs_shortest_path(graph, assignment[i], assignment[i+1])
+            path = bfs_shortest_path(graph, assignment[i], assignment[i + 1])
             if path is None:
                 continue
             for j in range(len(path) - 1):
-                n1, n2 = path[j], path[j+1]
+                n1, n2 = path[j], path[j + 1]
                 if (n1, n2) in edges:
                     edge_flow[(n1, n2)] += demand
                 elif (n2, n1) in edges:
@@ -135,8 +136,8 @@ def is_dominated(objA, objB):
     A_dom_B = True 代表 A 支配 B (三目標都 <= 且至少一個 <)
     這裡的目標越小越好
     """
-    A_dom_B = (all(a <= b for a,b in zip(objA,objB)) and any(a < b for a,b in zip(objA,objB)))
-    B_dom_A = (all(b <= a for a,b in zip(objA,objB)) and any(b < a for a,b in zip(objA,objB)))
+    A_dom_B = (all(a <= b for a, b in zip(objA, objB)) and any(a < b for a, b in zip(objA, objB)))
+    B_dom_A = (all(b <= a for a, b in zip(objA, objB)) and any(b < a for a, b in zip(objA, objB)))
     return A_dom_B, B_dom_A
 
 
@@ -182,7 +183,8 @@ class NSGreedy:
         給定「多 SFC 完整解」(dict: sfc_id -> [node...])，計算三目標
         """
         f1 = objective_load_balance(solution, self.network_nodes, self.sfc_requests, self.vnf_traffic)
-        f2 = objective_end_to_end_delay_bfs(solution, self.network_nodes, self.edges, self.sfc_requests, self.vnf_traffic)
+        f2 = objective_end_to_end_delay_bfs(solution, self.network_nodes, self.edges, self.sfc_requests,
+                                            self.vnf_traffic)
         f3 = objective_network_throughput(solution, self.edges, self.sfc_requests, self.vnf_traffic)
         return (f1, f2, f3)
 
@@ -230,7 +232,7 @@ class NSGreedy:
                         if path is None:
                             continue
                         new_sol = sol + [c]
-                        placeholder_obj = (0,0,0)
+                        placeholder_obj = (0, 0, 0)
                         # 加入 next_front 時先做非支配插入
                         next_front = non_dominated_insert(next_front, new_sol, placeholder_obj)
                 solution_front = next_front
@@ -374,7 +376,11 @@ if __name__ == "__main__":
     ]
 
     solver = NSGreedy(network_nodes, edges, sfc_requests, vnf_traffic)
+    start_time = time.time()
     final_solutions = solver.evolve()
+    end_time = time.time()
+    execution_time = end_time - start_time
+    print("程式執行時間：", execution_time, "秒")
 
     print(f"最終多 SFC 非支配解數量: {len(final_solutions)}")
     df_data = []

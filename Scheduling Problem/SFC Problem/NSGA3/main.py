@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from pandas.plotting import parallel_coordinates
+import time
 from collections import deque
 from mpl_toolkits.mplot3d import Axes3D
 
@@ -494,15 +494,19 @@ if __name__ == "__main__":
         {'id': '3', 'chain': ['0', '3']},
     ]
 
-    population_size = 100
+    population_size = 20
     generations = 100
 
     # 三個目標函數依序為：節點負載均衡、端到端延遲、網路吞吐量
     objectives = [objective_node_load_balance, objective_end_to_end_delay, objective_throughput]
 
     nsga3 = NSGA3_SFC(network_nodes, edges, vnf_traffic, sfc_requests, population_size, generations, objectives)
-    best_solutions = nsga3.evolve()
 
+    start_time = time.time()
+    best_solutions = nsga3.evolve()
+    end_time = time.time()
+    execution_time = end_time - start_time
+    print("程式執行時間：", execution_time, "秒")
     # 輸出最佳解（Pareto 前沿解）
     print("最佳解 (Pareto Front) 共", len(best_solutions), "個：")
     graph = build_graph(network_nodes)
