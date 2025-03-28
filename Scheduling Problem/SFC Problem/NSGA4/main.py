@@ -3,6 +3,7 @@ import pandas as pd
 from collections import deque
 import matplotlib.pyplot as plt
 import time
+from csv2list import csv2list
 
 
 #############################################
@@ -458,79 +459,84 @@ class NSGA4_SFC:
 #############################################
 
 if __name__ == "__main__":
-    # 節點資料（修改 load_per_unit 為 load_per_vnf，各 NODE 根據可處理的 VNF 定義不同負載係數）
-    network_nodes = [
-        {'id': 'A', 'vnf_types': ['0', '1'], 'neighbors': ['B', 'C'],
-         'load_per_vnf': {'0': 0.5, '1': 0.7},
-         'processing_delay': {'0': 2, '1': 3}},
-        {'id': 'B', 'vnf_types': ['0', '2', '3'], 'neighbors': ['A', 'D', 'E'],
-         'load_per_vnf': {'0': 0.6, '2': 0.8, '3': 1.0},
-         'processing_delay': {'0': 2.5, '2': 2, '3': 2}},
-        {'id': 'C', 'vnf_types': ['0', '3', '2'], 'neighbors': ['A', 'D', 'G', 'F'],
-         'load_per_vnf': {'0': 0.55, '3': 0.65, '2': 0.75},
-         'processing_delay': {'0': 3, '3': 1.5, '2': 2.5}},
-        {'id': 'D', 'vnf_types': ['0', '2', '3'], 'neighbors': ['B', 'C', 'E', 'G'],
-         'load_per_vnf': {'0': 0.6, '2': 0.85, '3': 0.95},
-         'processing_delay': {'0': 3, '2': 1.8, '3': 2}},
-        {'id': 'E', 'vnf_types': ['3', '1'], 'neighbors': ['B', 'D', 'H'],
-         'load_per_vnf': {'3': 0.5, '1': 0.6},
-         'processing_delay': {'3': 3, '1': 1.8}},
-        {'id': 'F', 'vnf_types': ['1', '3'], 'neighbors': ['C', 'I', 'J'],
-         'load_per_vnf': {'1': 0.7, '3': 0.8},
-         'processing_delay': {'1': 3, '3': 1.8}},
-        {'id': 'G', 'vnf_types': ['1', '2'], 'neighbors': ['C', 'D', 'I', 'K', 'H'],
-         'load_per_vnf': {'1': 0.65, '2': 0.75},
-         'processing_delay': {'1': 3, '2': 1.8}},
-        {'id': 'H', 'vnf_types': ['0', '2', '3'], 'neighbors': ['E', 'G'],
-         'load_per_vnf': {'0': 0.55, '2': 0.65, '3': 0.75},
-         'processing_delay': {'0': 3, '2': 1.8, '3': 2}},
-        {'id': 'I', 'vnf_types': ['0', '2'], 'neighbors': ['F', 'G', 'K'],
-         'load_per_vnf': {'0': 0.6, '2': 0.7},
-         'processing_delay': {'0': 3, '2': 1.8}},
-        {'id': 'J', 'vnf_types': ['2', '1'], 'neighbors': ['F', 'K'],
-         'load_per_vnf': {'2': 0.7, '1': 0.8},
-         'processing_delay': {'2': 3, '1': 1.8}},
-        {'id': 'K', 'vnf_types': ['1', '3'], 'neighbors': ['G', 'I', 'J'],
-         'load_per_vnf': {'1': 0.55, '3': 0.65},
-         'processing_delay': {'1': 1.8, '3': 2}},
-    ]
-
-    # 邊資訊 (無向邊)
-    edges = {
-        ('A', 'B'): 100,
-        ('A', 'C'): 80,
-        ('C', 'F'): 90,
-        ('F', 'J'): 70,
-        ('J', 'K'): 60,
-        ('K', 'G'): 60,
-        ('G', 'H'): 70,
-        ('H', 'E'): 80,
-        ('E', 'B'): 60,
-        ('D', 'B'): 40,
-        ('D', 'C'): 100,
-        ('D', 'G'): 40,
-        ('D', 'E'): 70,
-        ('C', 'G'): 50,
-        ('I', 'F'): 70,
-        ('I', 'G'): 80,
-        ('I', 'K'): 70,
-    }
-
-    # 定義各 VNF 流量需求
-    vnf_traffic = {
-        '0': 10,
-        '1': 10,
-        '2': 10,
-        '3': 10,
-    }
-
-    # 定義 4 個 SFC 請求（請求編號用 "0", "1", "2", "3"）
-    sfc_requests = [
-        {'id': '0', 'chain': ['0', '1', '2']},
-        {'id': '1', 'chain': ['2', '3']},
-        {'id': '2', 'chain': ['1', '3']},
-        {'id': '3', 'chain': ['0', '3']},
-    ]
+    # # 節點資料（修改 load_per_unit 為 load_per_vnf，各 NODE 根據可處理的 VNF 定義不同負載係數）
+    # network_nodes = [
+    #     {'id': 'A', 'vnf_types': ['0', '1'], 'neighbors': ['B', 'C'],
+    #      'load_per_vnf': {'0': 0.5, '1': 0.7},
+    #      'processing_delay': {'0': 2, '1': 3}},
+    #     {'id': 'B', 'vnf_types': ['0', '2', '3'], 'neighbors': ['A', 'D', 'E'],
+    #      'load_per_vnf': {'0': 0.6, '2': 0.8, '3': 1.0},
+    #      'processing_delay': {'0': 2.5, '2': 2, '3': 2}},
+    #     {'id': 'C', 'vnf_types': ['0', '3', '2'], 'neighbors': ['A', 'D', 'G', 'F'],
+    #      'load_per_vnf': {'0': 0.55, '3': 0.65, '2': 0.75},
+    #      'processing_delay': {'0': 3, '3': 1.5, '2': 2.5}},
+    #     {'id': 'D', 'vnf_types': ['0', '2', '3'], 'neighbors': ['B', 'C', 'E', 'G'],
+    #      'load_per_vnf': {'0': 0.6, '2': 0.85, '3': 0.95},
+    #      'processing_delay': {'0': 3, '2': 1.8, '3': 2}},
+    #     {'id': 'E', 'vnf_types': ['3', '1'], 'neighbors': ['B', 'D', 'H'],
+    #      'load_per_vnf': {'3': 0.5, '1': 0.6},
+    #      'processing_delay': {'3': 3, '1': 1.8}},
+    #     {'id': 'F', 'vnf_types': ['1', '3'], 'neighbors': ['C', 'I', 'J'],
+    #      'load_per_vnf': {'1': 0.7, '3': 0.8},
+    #      'processing_delay': {'1': 3, '3': 1.8}},
+    #     {'id': 'G', 'vnf_types': ['1', '2'], 'neighbors': ['C', 'D', 'I', 'K', 'H'],
+    #      'load_per_vnf': {'1': 0.65, '2': 0.75},
+    #      'processing_delay': {'1': 3, '2': 1.8}},
+    #     {'id': 'H', 'vnf_types': ['0', '2', '3'], 'neighbors': ['E', 'G'],
+    #      'load_per_vnf': {'0': 0.55, '2': 0.65, '3': 0.75},
+    #      'processing_delay': {'0': 3, '2': 1.8, '3': 2}},
+    #     {'id': 'I', 'vnf_types': ['0', '2'], 'neighbors': ['F', 'G', 'K'],
+    #      'load_per_vnf': {'0': 0.6, '2': 0.7},
+    #      'processing_delay': {'0': 3, '2': 1.8}},
+    #     {'id': 'J', 'vnf_types': ['2', '1'], 'neighbors': ['F', 'K'],
+    #      'load_per_vnf': {'2': 0.7, '1': 0.8},
+    #      'processing_delay': {'2': 3, '1': 1.8}},
+    #     {'id': 'K', 'vnf_types': ['1', '3'], 'neighbors': ['G', 'I', 'J'],
+    #      'load_per_vnf': {'1': 0.55, '3': 0.65},
+    #      'processing_delay': {'1': 1.8, '3': 2}},
+    # ]
+    #
+    # # 邊資訊 (無向邊)
+    # edges = {
+    #     ('A', 'B'): 100,
+    #     ('A', 'C'): 80,
+    #     ('C', 'F'): 90,
+    #     ('F', 'J'): 70,
+    #     ('J', 'K'): 60,
+    #     ('K', 'G'): 60,
+    #     ('G', 'H'): 70,
+    #     ('H', 'E'): 80,
+    #     ('E', 'B'): 60,
+    #     ('D', 'B'): 40,
+    #     ('D', 'C'): 100,
+    #     ('D', 'G'): 40,
+    #     ('D', 'E'): 70,
+    #     ('C', 'G'): 50,
+    #     ('I', 'F'): 70,
+    #     ('I', 'G'): 80,
+    #     ('I', 'K'): 70,
+    # }
+    #
+    # # 定義各 VNF 流量需求
+    # vnf_traffic = {
+    #     '0': 10,
+    #     '1': 10,
+    #     '2': 10,
+    #     '3': 10,
+    # }
+    #
+    # # 定義 4 個 SFC 請求（請求編號用 "0", "1", "2", "3"）
+    # sfc_requests = [
+    #     {'id': '0', 'chain': ['0', '1', '2']},
+    #     {'id': '1', 'chain': ['2', '3']},
+    #     {'id': '2', 'chain': ['1', '3']},
+    #     {'id': '3', 'chain': ['0', '3']},
+    # ]
+    csv2list = csv2list()
+    network_nodes = csv2list.nodes("../nodes.csv")
+    edges = csv2list.edges("../edges.csv")
+    sfc_requests = csv2list.vnfs("../vnfs.csv")
+    vnf_traffic = csv2list.demands("../demands.csv")
 
     population_size = 20
     generations = 100
