@@ -38,18 +38,11 @@ def bfs_shortest_path(graph, start, goal):
 def objective_load_balance(solution, network_nodes, sfc_requests, vnf_traffic):
     """
     目標1：最小化節點負載均衡（以節點負載標準差衡量）
-
-    solution 的形式: {
-        sfc_id_1: [nodeX, nodeY, ...],
-        sfc_id_2: [nodeA, nodeB, ...],
-        ...
-    }
     """
     node_loads = {node_id: 0.0 for node_id in network_nodes.keys()}
     for req in sfc_requests:
         chain = req['chain']
         assignment = solution[req['id']]  # 該 SFC 的節點指派序列
-        # 假設整條 chain 使用 chain[0] 的需求量當作流量(僅示範用)
         demand = vnf_traffic[chain[0]]
         for i, node_id in enumerate(assignment):
             vnf = chain[i]
@@ -62,7 +55,6 @@ def objective_load_balance(solution, network_nodes, sfc_requests, vnf_traffic):
 def objective_end_to_end_delay_bfs(solution, network_nodes, edges, sfc_requests, vnf_traffic):
     """
     目標2：最小化端到端延遲
-    - 節點處理延遲 + 邊延遲
     """
     graph = {node_id: network_nodes[node_id]['neighbors'] for node_id in network_nodes}
     total_delay = 0.0
@@ -99,7 +91,6 @@ def objective_network_throughput(solution, edges, sfc_requests, vnf_traffic):
     """
     目標3：最大化網路吞吐量（取倒數 => 越小越好）
     """
-    # 建立無向圖
     graph = {}
     for (n1, n2) in edges:
         graph.setdefault(n1, []).append(n2)
@@ -147,41 +138,31 @@ def non_dominated_insert(front, new_sol, new_obj):
     for (sol, obj) in front:
         A_dom_B, B_dom_A = is_dominated(new_obj, obj)
         if B_dom_A:
-            # 代表 front 中的解支配 new_sol => 丟棄
             dominated_by_others = True
             break
         if A_dom_B:
-            # new_sol 支配 front 中的 (sol, obj) => 之後要移除
             dominates_list.append((sol, obj))
     if dominated_by_others:
-        return front  # 丟棄 new_sol
+        return front
 
-    # 移除被 new_sol 支配的
-    updated = []
-    for item in front:
-        if item not in dominates_list:
-            updated.append(item)
-    # 加入 new_sol
+    updated = [item for item in front if item not in dominates_list]
     updated.append((new_sol, new_obj))
     return updated
 
 
 #############################################
-# 主要類別：NSGreedy
+# 主要類別：NSExhaustive
+# (將原本的貪婪搜尋方法改成歷遍所有可能解)
 #############################################
-class NSGreedy:
+class NSExhaustive:
     def __init__(self, network_nodes, edges, sfc_requests, vnf_traffic):
         self.network_nodes = {n['id']: n for n in network_nodes}
         self.edges = edges
         self.sfc_requests = sfc_requests
         self.vnf_traffic = vnf_traffic
-        # 做 BFS 用的 graph
         self.bfs_graph = {n['id']: n['neighbors'] for n in network_nodes}
 
     def compute_objectives(self, solution):
-        """
-        給定「多 SFC 完整解」(dict: sfc_id -> [node...])，計算三目標
-        """
         f1 = objective_load_balance(solution, self.network_nodes, self.sfc_requests, self.vnf_traffic)
         f2 = objective_end_to_end_delay_bfs(solution, self.network_nodes, self.edges, self.sfc_requests,
                                             self.vnf_traffic)
@@ -193,56 +174,38 @@ class NSGreedy:
 
     def evolve_one_sfc(self, req):
         """
-        示範：對「單一 SFC」做簡單的 Greedy + 非支配比較
-        回傳該 SFC 的一組「完整解」 => [(sol, obj), ...]
-        sol = [node1, node2, ...]
+        改成歷遍法：對單一 SFC 列舉所有可能的節點指派組合，
+        並檢查相鄰節點間是否有可行路徑，最終返回該 SFC 的非支配解集。
         """
         chain = req['chain']
         sfc_id = req['id']
 
-        # 初始
-        solution_front = []
+        # 為每個 VNF 收集候選節點
+        candidate_lists = []
+        for vnf in chain:
+            candidates = [nid for nid, nd in self.network_nodes.items() if vnf in nd['vnf_types']]
+            if not candidates:
+                return []  # 某個 VNF 沒有候選節點，無解
+            candidate_lists.append(candidates)
 
-        for i, vnf in enumerate(chain):
-            if i == 0:
-                # 第一個 VNF
-                candidates = [nid for nid, nd in self.network_nodes.items() if vnf in nd['vnf_types']]
-                if not candidates:
-                    # 沒得選 => 無解
-                    return []
-                new_front = []
-                for c in candidates:
-                    # 先把 sol 存下來(尚未計算真正目標)
-                    # 這裡先用 (sol, (0,0,0)) 佔位
-                    sol = [c]
-                    placeholder_obj = (0, 0, 0)
-                    new_front.append((sol, placeholder_obj))
-                solution_front = new_front
-            else:
-                # 擴展
-                next_front = []
-                for (sol, pobj) in solution_front:
-                    last_node = sol[-1]
-                    candidates = [nid for nid, nd in self.network_nodes.items() if vnf in nd['vnf_types']]
-                    if not candidates:
-                        continue
-                    for c in candidates:
-                        # 檢查 last_node -> c BFS
-                        path = bfs_shortest_path(self.bfs_graph, last_node, c)
-                        if path is None:
-                            continue
-                        new_sol = sol + [c]
-                        placeholder_obj = (0, 0, 0)
-                        # 加入 next_front 時先做非支配插入
-                        next_front = non_dominated_insert(next_front, new_sol, placeholder_obj)
-                solution_front = next_front
+        # 用 itertools.product 列舉所有可能組合
+        all_combinations = list(itertools.product(*candidate_lists))
 
-        # 到這裡表示整個 chain 都分配完 => 重新計算真實三目標
+        valid_solutions = []
+        for comb in all_combinations:
+            # 檢查每一對連續節點間是否存在可行的 BFS 路徑
+            valid = True
+            for i in range(len(comb) - 1):
+                if bfs_shortest_path(self.bfs_graph, comb[i], comb[i + 1]) is None:
+                    valid = False
+                    break
+            if valid:
+                valid_solutions.append(list(comb))
+
+        # 對每個有效解計算真實目標
         final_solutions = []
-        for (sol, _) in solution_front:
-            # 組成只含該 SFC 的 dict => { sfc_id: sol }
+        for sol in valid_solutions:
             big_sol = {req['id']: sol}
-            # 其餘 SFC 不處理 => 空
             for other_req in self.sfc_requests:
                 if other_req['id'] != sfc_id:
                     big_sol[other_req['id']] = []
@@ -257,45 +220,32 @@ class NSGreedy:
 
     def combine_all_sfc_solutions(self, all_sfc_solutions):
         """
-        針對所有 SFC 的解做「排列組合 (笛卡兒積)」，把每條 SFC 的解拼接成「大解」，計算新目標並做非支配比較。
-
-        all_sfc_solutions: dict[sfc_id] = list of (sol, obj)
-           - sol: 針對該 sfc_id 的指派序列 (e.g. [nodeA, nodeB,...])
-           - obj: 只是個暫存，最終要重新計算「整合後」的大解的三目標
-        回傳: final_nd => 多條 SFC 同時分配的非支配解 [(big_sol_dict, (f1,f2,f3)), ...]
+        對所有 SFC 的解做排列組合，計算綜合目標，並做非支配比較。
         """
         sfc_ids = list(all_sfc_solutions.keys())
-        # 把每個 SFC 的解集合收集成 list
         solutions_list = [all_sfc_solutions[sid] for sid in sfc_ids]
 
         final_nd = []
-        # 用 itertools.product 做排列組合
         for combo in itertools.product(*solutions_list):
-            # combo = ( (solA, objA), (solB, objB), ... ) 各自屬於不同 SFC
             big_sol = {}
             for i, sid in enumerate(sfc_ids):
-                big_sol[sid] = combo[i][0]  # 取出指派序列
-            # 用 compute_objectives 計算「n 個 SFC」同時分配的三目標
+                big_sol[sid] = combo[i][0]
             new_obj = self.compute_objectives(big_sol)
-            # 再做非支配插入
             final_nd = self.non_dominated_insert(final_nd, big_sol, new_obj)
-
         return final_nd
 
     def evolve(self):
         """
-        主流程:
-         1) 逐條 SFC 呼叫 evolve_one_sfc -> 得到該 SFC 的一批解
-         2) 把每條 SFC 的解集合儲存起來
-         3) 最後呼叫 combine_all_sfc_solutions, 針對所有 SFC 解做排列組合，計算多條 SFC 同時分配的真實三目標
-         4) 用非支配比較獲得最終的 Pareto front
+        主流程：
+         1) 對每條 SFC 採用歷遍搜尋得到所有非支配解
+         2) 將各 SFC 解集合進行排列組合，計算多 SFC 同時分配的目標
+         3) 最終返回多 SFC 的非支配解集合
         """
         all_sfc_solutions = {}
         for req in self.sfc_requests:
-            nd_set = self.evolve_one_sfc(req)  # list of (sol, obj)
+            nd_set = self.evolve_one_sfc(req)
             all_sfc_solutions[req['id']] = nd_set
 
-        # 最後合併 => 多條 SFC 的解 全部做「笛卡兒積」=> 計算真正的多 SFC 同時分配目標
         final_nd = self.combine_all_sfc_solutions(all_sfc_solutions)
         return final_nd
 
@@ -381,7 +331,7 @@ if __name__ == "__main__":
     vnf_traffic = c2l.vnfs("../vnfs.csv")
     sfc_requests = c2l.demands("../demands.csv")
 
-    solver = NSGreedy(network_nodes, edges, sfc_requests, vnf_traffic)
+    solver = NSExhaustive(network_nodes, edges, sfc_requests, vnf_traffic)
     start_time = time.time()
     final_solutions = solver.evolve()
     end_time = time.time()
@@ -406,19 +356,19 @@ if __name__ == "__main__":
     if df_data:
         df = pd.DataFrame(df_data)
         print(df)
-        # 3D Scatter
+        # 3D 散點圖
         fig = plt.figure(figsize=(10, 7))
         ax = fig.add_subplot(111, projection='3d')
         ax.scatter(df['LoadBalance'], df['Delay'], df['Throughput'], marker='o')
         ax.set_xlabel('LoadBalance')
         ax.set_ylabel('Delay')
-        ax.set_zlabel('1 / (Sum Util)')
+        ax.set_zlabel('1 / (Throughput)')
         ax.set_title('Final Pareto Front (All SFC Combined)')
         ax.set_box_aspect([1, 1, 1])
         ax.view_init(elev=30, azim=45)
         plt.show()
 
-        # 2D Scatter
+        # 2D 散點圖
         fig, axs = plt.subplots(1, 3, figsize=(18, 5))
         axs[0].scatter(df['LoadBalance'], df['Delay'], marker='o')
         axs[0].set_xlabel('LoadBalance')
@@ -427,18 +377,17 @@ if __name__ == "__main__":
 
         axs[1].scatter(df['LoadBalance'], df['Throughput'], marker='o')
         axs[1].set_xlabel('LoadBalance')
-        axs[1].set_ylabel('1 / (Sum Util)')
+        axs[1].set_ylabel('1 / (Throughput)')
         axs[1].set_title('LoadBalance vs Throughput')
 
         axs[2].scatter(df['Delay'], df['Throughput'], marker='o')
         axs[2].set_xlabel('Delay')
-        axs[2].set_ylabel('1 / (Sum Util)')
+        axs[2].set_ylabel('1 / (Throughput)')
         axs[2].set_title('Delay vs Throughput')
 
         plt.tight_layout()
         plt.show()
 
-        df.to_csv('NSGreedy_solutions_data.csv', index=False)
-
+        df.to_csv('NSExhaustive_solutions_data.csv', index=False)
     else:
         print("No feasible solutions found!")

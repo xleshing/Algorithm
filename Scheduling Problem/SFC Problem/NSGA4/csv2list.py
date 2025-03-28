@@ -8,9 +8,9 @@ class csv2list:
             reader = csv.DictReader(csvfile)
 
             for row in reader:
-                node_id = row['節點名稱']
-                vnf_types_raw = row['VNF類型'].split(", ")
-                neighbors = row['鄰居'].split(", ")
+                node_id = row['節點名稱'].replace("EN", "")
+                vnf_types_raw = row['VNF類型'].replace("NFV", "").split(", ")
+                neighbors = row['鄰居'].replace("EN", "").split(", ")
                 loads = list(map(float, row['每種VNF負載'].split(", ")))
                 delays = list(map(float, row['每種VNF處理延遲'].split(", ")))
 
@@ -34,13 +34,13 @@ class csv2list:
             reader = csv.DictReader(csvfile)
 
             for row in reader:
-                start = row['邊的起點']
-                end = row['邊的終點']
+                start = row['邊的起點'].replace("EN", "")
+                end = row['邊的終點'].replace("EN", "")
                 capacity = float(row['邊的容量'])  # 根據需要可以轉成 int
 
                 edges[(start, end)] = capacity
 
-        return  edges
+        return edges
 
     def vnfs(self, file: str) -> dict:
         vnf_traffic = {}
@@ -49,11 +49,11 @@ class csv2list:
             reader = csv.DictReader(csvfile)
 
             for row in reader:
-                vnf_id = row['VNF名稱']
+                vnf_id = row['VNF名稱'].replace("NFV", "")
                 demand = float(row['VNF流量需求'])  # 也可以用 int()
                 vnf_traffic[vnf_id] = demand
 
-        return  vnf_traffic
+        return vnf_traffic
 
     def demands(self, file: str) -> list:
         sfc_requests = []
@@ -62,7 +62,7 @@ class csv2list:
             reader = csv.DictReader(csvfile)
 
             for i, row in enumerate(reader):
-                vnf_id = row['需求名稱']
+                vnf_id = row['需求名稱'].replace("D", "")
                 chain = row['需求鏈路'].split(',')
                 chain = [vnf.strip() for vnf in chain]  # 去除空白
                 sfc_requests.append({
@@ -73,4 +73,9 @@ class csv2list:
         return sfc_requests
 
 
-csv2list = csv2list()
+if __name__ == "__main__":
+    csv2list = csv2list()
+    print(csv2list.nodes("../nodes.csv"))
+    print(csv2list.edges("../edges.csv"))
+    print(csv2list.vnfs("../vnfs.csv"))
+    print(csv2list.demands("../demands.csv"))

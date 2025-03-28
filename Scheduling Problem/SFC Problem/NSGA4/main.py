@@ -339,8 +339,8 @@ class NSGA4_SFC:
         for req in sorted(self.sfc_requests, key=lambda x: x['id']):
             assignment1 = sol1[req['id']]
             assignment2 = sol2[req['id']]
-            vec1.extend([float(ord(c)) for c in assignment1])
-            vec2.extend([float(ord(c)) for c in assignment2])
+            vec1.extend([float(c) for c in assignment1])
+            vec2.extend([float(c) for c in assignment2])
         return np.linalg.norm(np.array(vec1) - np.array(vec2))
 
     def selection(self):
@@ -532,11 +532,11 @@ if __name__ == "__main__":
     #     {'id': '2', 'chain': ['1', '3']},
     #     {'id': '3', 'chain': ['0', '3']},
     # ]
-    csv2list = csv2list()
-    network_nodes = csv2list.nodes("../nodes.csv")
-    edges = csv2list.edges("../edges.csv")
-    sfc_requests = csv2list.vnfs("../vnfs.csv")
-    vnf_traffic = csv2list.demands("../demands.csv")
+    c2l = csv2list()
+    network_nodes = c2l.nodes("../nodes.csv")
+    edges = c2l.edges("../edges.csv")
+    vnf_traffic = c2l.vnfs("../vnfs.csv")
+    sfc_requests = c2l.demands("../demands.csv")
 
     population_size = 20
     generations = 100
