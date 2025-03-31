@@ -4,6 +4,7 @@ from collections import deque
 import matplotlib.pyplot as plt
 import time
 from csv2list import csv2list
+import os
 
 
 #############################################
@@ -532,93 +533,100 @@ if __name__ == "__main__":
     #     {'id': '2', 'chain': ['1', '3']},
     #     {'id': '3', 'chain': ['0', '3']},
     # ]
-    c2l = csv2list()
-    network_nodes = c2l.nodes("../nodes.csv")
-    edges = c2l.edges("../edges.csv")
-    vnf_traffic = c2l.vnfs("../vnfs.csv")
-    sfc_requests = c2l.demands("../demands.csv")
+    # 確保資料夾存在
+    os.makedirs("graph1", exist_ok=True)
+    os.makedirs("graph2", exist_ok=True)
+    os.makedirs("csv", exist_ok=True)
+    for num in range(15, 105, 5):  # 包含15~100，間距5
+        c2l = csv2list()
+        network_nodes = c2l.nodes(f"../problem/nodes/nodes_{num}.csv")
+        edges = c2l.edges(f"../problem/edges/edges_{num}.csv")
+        vnf_traffic = c2l.vnfs("../problem/vnfs/vnfs_15.csv")
+        sfc_requests = c2l.demands("../problem/demands/demands_15.csv")
 
-    population_size = 20
-    generations = 100
+        population_size = 20
+        generations = 100
 
-    nsga4_sfc = NSGA4_SFC(network_nodes, edges, sfc_requests, vnf_traffic, population_size, generations)
+        nsga4_sfc = NSGA4_SFC(network_nodes, edges, sfc_requests, vnf_traffic, population_size, generations)
 
-    start_time = time.time()
-    pareto_front = nsga4_sfc.evolve()
-    end_time = time.time()
-    execution_time = end_time - start_time
-    print("程式執行時間：", execution_time, "秒")
+        start_time = time.time()
+        pareto_front = nsga4_sfc.evolve()
+        end_time = time.time()
+        execution_time = end_time - start_time
+        print("程式執行時間：", execution_time, "秒")
 
-    # 建立 graph 用於 BFS (完整路徑)
-    graph = {node_id: node['neighbors'] for node_id, node in {n['id']: n for n in network_nodes}.items()}
+        # 建立 graph 用於 BFS (完整路徑)
+        graph = {node_id: node['neighbors'] for node_id, node in {n['id']: n for n in network_nodes}.items()}
 
-    # 輸出格式
-    print(f"最佳解 (Pareto Front) 共 {len(pareto_front)} 個：")
-    for sol in pareto_front:
+        # 輸出格式
+        print(f"最佳解 (Pareto Front) 共 {len(pareto_front)} 個：")
+        for sol in pareto_front:
+            print("-----")
+            print("各請求的處理節點序列與完整路徑：")
+            for req in sfc_requests:
+                assignment = sol[req['id']]
+                complete_path = get_complete_path(assignment, graph)
+                print(f"請求 {req['id']}：處理節點 = {assignment}，完整路徑 = {complete_path}")
         print("-----")
-        print("各請求的處理節點序列與完整路徑：")
-        for req in sfc_requests:
-            assignment = sol[req['id']]
-            complete_path = get_complete_path(assignment, graph)
-            print(f"請求 {req['id']}：處理節點 = {assignment}，完整路徑 = {complete_path}")
-    print("-----")
 
-    # 輸出各目標函數結果
-    for sol in pareto_front:
-        obj_vals = nsga4_sfc.compute_objectives(sol)
-        print("\n目標函數結果：")
-        print(f"節點負載均衡（標準差）： {obj_vals[0]:.4f}")
-        print(f"端到端延遲： {obj_vals[1]:.4f}")
-        print(f"網路吞吐量目標： {obj_vals[2]:.4f}")
+        # 輸出各目標函數結果
+        for sol in pareto_front:
+            obj_vals = nsga4_sfc.compute_objectives(sol)
+            print("\n目標函數結果：")
+            print(f"節點負載均衡（標準差）： {obj_vals[0]:.4f}")
+            print(f"端到端延遲： {obj_vals[1]:.4f}")
+            print(f"網路吞吐量目標： {obj_vals[2]:.4f}")
 
-    # 收集所有解目標數據並以 DataFrame 彙總
-    solutions_data = []
-    for sol in pareto_front:
-        obj_vals = nsga4_sfc.compute_objectives(sol)
-        solutions_data.append({
-            'Solution': str(sol),
-            'LoadBalance': obj_vals[0],
-            'Delay': obj_vals[1],
-            'Throughput': obj_vals[2]
-        })
-    df = pd.DataFrame(solutions_data)
-    print("\n各目標函數的彙總數據：")
-    print(df)
+        # 收集所有解目標數據並以 DataFrame 彙總
+        solutions_data = []
+        for sol in pareto_front:
+            obj_vals = nsga4_sfc.compute_objectives(sol)
+            solutions_data.append({
+                'Solution': str(sol),
+                'LoadBalance': obj_vals[0],
+                'Delay': obj_vals[1],
+                'Throughput': obj_vals[2]
+            })
+        df = pd.DataFrame(solutions_data)
+        print("\n各目標函數的彙總數據：")
+        print(df)
 
-    # === 3D 散點圖：三個目標 ===
-    fig = plt.figure(figsize=(10, 8))
-    ax = fig.add_subplot(111, projection='3d')
-    ax.scatter(df['LoadBalance'], df['Delay'], df['Throughput'], c='blue', marker='o')
-    ax.set_xlabel('LoadBalance')
-    ax.set_ylabel('Delay')
-    ax.set_zlabel('Throughput')
-    ax.set_title('NSGA4 Pareto Front')
-    ax.set_box_aspect([1, 1, 1])
-    ax.view_init(elev=30, azim=45)
-    plt.show()
+        # === 3D 散點圖：三個目標 ===
+        fig = plt.figure(figsize=(10, 8))
+        ax = fig.add_subplot(111, projection='3d')
+        ax.scatter(df['LoadBalance'], df['Delay'], df['Throughput'], c='blue', marker='o')
+        ax.set_xlabel('LoadBalance')
+        ax.set_ylabel('Delay')
+        ax.set_zlabel('Throughput')
+        ax.set_title('NSGA4 Pareto Front')
+        ax.set_box_aspect([1, 1, 1])
+        ax.view_init(elev=30, azim=45)
+        plt.savefig(f"graph1/graph1_{num}.png")
+        # plt.show()
 
-    # === 二維散點圖：兩兩目標比較 ===
-    fig, axs = plt.subplots(1, 3, figsize=(18, 5))
+        # === 二維散點圖：兩兩目標比較 ===
+        fig, axs = plt.subplots(1, 3, figsize=(18, 5))
 
-    # LoadBalance 與 Delay
-    axs[0].scatter(df['LoadBalance'], df['Delay'], c='red', marker='o')
-    axs[0].set_xlabel('LoadBalance')
-    axs[0].set_ylabel('Delay')
-    axs[0].set_title('NSGA4 LoadBalance vs Delay')
+        # LoadBalance 與 Delay
+        axs[0].scatter(df['LoadBalance'], df['Delay'], c='red', marker='o')
+        axs[0].set_xlabel('LoadBalance')
+        axs[0].set_ylabel('Delay')
+        axs[0].set_title('NSGA4 LoadBalance vs Delay')
 
-    # LoadBalance 與 Throughput
-    axs[1].scatter(df['LoadBalance'], df['Throughput'], c='green', marker='o')
-    axs[1].set_xlabel('LoadBalance')
-    axs[1].set_ylabel('Throughput')
-    axs[1].set_title('NSGA4 LoadBalance vs Throughput')
+        # LoadBalance 與 Throughput
+        axs[1].scatter(df['LoadBalance'], df['Throughput'], c='green', marker='o')
+        axs[1].set_xlabel('LoadBalance')
+        axs[1].set_ylabel('Throughput')
+        axs[1].set_title('NSGA4 LoadBalance vs Throughput')
 
-    # Delay 與 Throughput
-    axs[2].scatter(df['Delay'], df['Throughput'], c='purple', marker='o')
-    axs[2].set_xlabel('Delay')
-    axs[2].set_ylabel('Throughput')
-    axs[2].set_title('NSGA4 Delay vs Throughput')
+        # Delay 與 Throughput
+        axs[2].scatter(df['Delay'], df['Throughput'], c='purple', marker='o')
+        axs[2].set_xlabel('Delay')
+        axs[2].set_ylabel('Throughput')
+        axs[2].set_title('NSGA4 Delay vs Throughput')
 
-    plt.tight_layout()
-    plt.show()
+        plt.tight_layout()
+        plt.savefig(f"graph2/graph2_{num}.png")
+        # plt.show()
 
-    df.to_csv('NSGA4_solutions_data.csv', index=False)
+        df.to_csv(f'csv/NSGA4_solutions_data_{num}.csv', index=False)
