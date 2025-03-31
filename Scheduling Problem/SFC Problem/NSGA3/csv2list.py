@@ -1,6 +1,7 @@
 import csv
 
 
+
 class csv2list:
     def nodes(self, file: str) -> list:
         network_nodes = []
@@ -9,7 +10,7 @@ class csv2list:
 
             for row in reader:
                 node_id = row['節點名稱'].replace("EN", "")
-                vnf_types_raw = row['VNF類型'].replace("NFV", "").split(", ")
+                vnf_types_raw = row['VNF類型'].replace("VNF", "").split(", ")
                 neighbors = row['鄰居'].replace("EN", "").split(", ")
                 loads = list(map(float, row['每種VNF負載'].split(", ")))
                 delays = list(map(float, row['每種VNF處理延遲'].split(", ")))
@@ -49,7 +50,7 @@ class csv2list:
             reader = csv.DictReader(csvfile)
 
             for row in reader:
-                vnf_id = row['VNF名稱'].replace("NFV", "")
+                vnf_id = row['VNF名稱'].replace("VNF", "")
                 demand = float(row['VNF流量需求'])  # 也可以用 int()
                 vnf_traffic[vnf_id] = demand
 
@@ -64,7 +65,7 @@ class csv2list:
             for i, row in enumerate(reader):
                 vnf_id = row['需求名稱'].replace("D", "")
                 chain = row['需求鏈路'].split(',')
-                chain = [vnf.strip() for vnf in chain]  # 去除空白
+                chain = [vnf.replace("VNF", "").strip() for vnf in chain]  # 去除空白
                 sfc_requests.append({
                     'id': vnf_id,
                     'chain': chain
@@ -75,7 +76,7 @@ class csv2list:
 
 if __name__ == "__main__":
     csv2list = csv2list()
-    print(csv2list.nodes("../nodes.csv"))
-    print(csv2list.edges("../edges.csv"))
-    print(csv2list.vnfs("../vnfs.csv"))
-    print(csv2list.demands("../demands.csv"))
+    print(csv2list.nodes("../problem/nodes/nodes_15.csv"))
+    print(csv2list.edges("../problem/edges/edges_15.csv"))
+    print(csv2list.vnfs("../problem/vnfs/vnfs_15.csv"))
+    print(csv2list.demands("../problem/demands/demands.csv"))

@@ -30,6 +30,17 @@ def bfs_shortest_path(graph, start, goal):
     return None
 
 
+def build_graph(network_nodes):
+    """
+    根據 network_nodes 建立圖結構，
+    採用與 NSGA4 相同的方法：利用字典生成式建立 key 為節點 id，
+    value 為該節點的鄰居列表。
+    """
+    # 注意：假設 network_nodes 為一個列表，每個元素是一個字典，
+    # 且每個字典至少包含 'id' 與 'neighbors' 欄位。
+    return {node['id']: node['neighbors'] for node in network_nodes}
+
+
 def get_complete_path(assignment, graph):
     """
     根據一筆 SFC 的處理節點 assignment，
@@ -69,7 +80,7 @@ def objective_load_balance(solution, network_nodes, sfc_requests, vnf_traffic):
     return np.std(loads_array)
 
 
-def objective_end_to_end_delay_bfs(solution, network_nodes, edges, sfc_requests, vnf_traffic):
+def objective_end_to_end_delay_bfs(solution, network_nodes, edges, vnf_traffic, sfc_requests):
     """
     目標2：最小化端到端延遲
     對每筆 SFC，計算：
@@ -89,7 +100,7 @@ def objective_end_to_end_delay_bfs(solution, network_nodes, edges, sfc_requests,
         for i in range(len(assignment) - 1):
             path = bfs_shortest_path(graph, assignment[i], assignment[i + 1])
             if path is None:
-                edge_delay += 1e6  # 懲罰
+                raise ValueError(f"{assignment} path is None")
             else:
                 for j in range(len(path) - 1):
                     n1, n2 = path[j], path[j + 1]
@@ -98,7 +109,7 @@ def objective_end_to_end_delay_bfs(solution, network_nodes, edges, sfc_requests,
                     elif (n2, n1) in edges:
                         cap = edges[(n2, n1)]
                     else:
-                        cap = 1e-6
+                        raise ValueError(f"{n1, n2} not in edges")
                     edge_delay += demand / cap
         total_delay += (node_delay + edge_delay)
     return total_delay
@@ -107,8 +118,9 @@ def objective_end_to_end_delay_bfs(solution, network_nodes, edges, sfc_requests,
 def objective_network_throughput(solution, edges, sfc_requests, vnf_traffic):
     """
     目標3：最大化網路吞吐量（取倒數以最小化）
-    對每條邊，累計經由該邊的流量（利用 BFS 找出完整路徑），
-    最後計算各邊利用率的累加後取倒數
+    - 對每條邊累計經由該邊的流量（利用 BFS 找出完整路徑）
+    - 若任一邊的累計流量超過其容量，則回傳 False
+    - 否則，以所有邊累計流量的倒數作為目標值
     """
     # 建立無向圖
     graph = {}
@@ -118,27 +130,42 @@ def objective_network_throughput(solution, edges, sfc_requests, vnf_traffic):
 
     edge_flow = {edge: 0.0 for edge in edges.keys()}
     for req in sfc_requests:
+        # 這裡假設各 VNF 流量相同，取 chain 中第一個 VNF 的流量需求
         demand = vnf_traffic[req['chain'][0]]
         assignment = solution[req['id']]
         for i in range(len(assignment) - 1):
             path = bfs_shortest_path(graph, assignment[i], assignment[i + 1])
             if path is None:
-                continue
+                raise ValueError(f"{assignment} path is None")
             for j in range(len(path) - 1):
                 n1, n2 = path[j], path[j + 1]
                 if (n1, n2) in edges:
                     edge_flow[(n1, n2)] += demand
                 elif (n2, n1) in edges:
                     edge_flow[(n2, n1)] += demand
-    throughput_sum = 0.0
-    for edge, flow in edge_flow.items():
-        throughput_sum += flow / edges[edge]
+
+    if not within_capacity(edge_flow, edges):
+        raise ValueError(f"{solution} within_capacity")
+
+    # 僅計算所有邊累計流量的倒數作為目標值
+    total_flow = sum(edge_flow.values())
     epsilon = 1e-6
-    return 1 / (throughput_sum + epsilon)
+    return 1 / (total_flow + epsilon)
+
+
+def within_capacity(edge_flow, edges):
+    """
+    檢查每條邊的流量是否都在容量限制內。
+    若有任一邊流量超過容量，則回傳 False，否則回傳 True。
+    """
+    for edge, flow in edge_flow.items():
+        if flow > edges[edge]:
+            return False
+    return True
 
 
 #############################################
-# NSGA4_SFC 類別 (完整路徑版本)
+# NSGA4_SFC 類別
 #############################################
 class NSGA4_SFC:
     def __init__(self, network_nodes, edges, sfc_requests, vnf_traffic, population_size, generations):
@@ -168,7 +195,8 @@ class NSGA4_SFC:
 
     def generate_feasible_assignment_for_request(self, req):
         """
-        對單一 SFC 請求：對於每個 VNF，從所有能處理該 VNF 的節點中隨機選擇（不要求直接連通）
+        對單筆請求，初始化一個可行的處理節點序列（不要求節點間相鄰），
+        並利用 repair_assignment_for_request 檢查與修正分配方案。
         """
         chain = req['chain']
         assignment = []
@@ -177,122 +205,157 @@ class NSGA4_SFC:
             if not candidates:
                 raise ValueError(f"請求 {req['id']} 的 VNF {vnf} 無法分配到任何節點")
             assignment.append(np.random.choice(candidates))
+
+        # 利用 repair_assignment_for_request 檢查並修正分配方案
+        assignment = self.repair_assignment_for_request(req, assignment)
         return assignment
 
     def repair_assignment_for_request(self, req, assignment):
         """
-        檢查每個位置是否分配了能處理對應 VNF 的節點
+        檢查並修正一個 SFC 請求中的節點分配方案，
+        確保在每個位置上所選擇的節點能夠處理該位置所要求的 VNF 類型，
+        並且與前一個節點間是可連通的（使用 BFS 檢查）。
+        :param req: SFC 請求，包含 'chain'
+        :param assignment: 原始的節點分配列表
+        :return: 修正後的分配列表
         """
         chain = req['chain']
+        # 建立網路圖：根據每個節點的鄰居資訊
+        graph = {node_id: self.network_nodes[node_id]['neighbors'] for node_id in self.network_nodes}
+
         for i in range(len(assignment)):
+            valid = True
+            # 檢查當前節點是否具備處理對應 VNF 的能力
             if chain[i] not in self.network_nodes[assignment[i]]['vnf_types']:
-                candidates = [node_id for node_id, node in self.network_nodes.items() if chain[i] in node['vnf_types']]
+                valid = False
+            # 如果不是第一個節點，還要檢查與前一個節點之間是否連通
+            if i > 0:
+                prev_node = assignment[i - 1]
+                # 使用 BFS 檢查從前一個節點到當前節點是否存在可行路徑
+                if bfs_shortest_path(graph, prev_node, assignment[i]) is None:
+                    valid = False
+            # 如果不符合要求，則重新選擇一個候選節點
+            if not valid:
+                if i == 0:
+                    # 第一個節點只需檢查處理能力
+                    candidates = [node_id for node_id, node in self.network_nodes.items()
+                                  if chain[i] in node['vnf_types']]
+                else:
+                    # 從所有能處理該 VNF 的節點中挑選出與前一個節點連通的候選
+                    candidates = [node_id for node_id, node in self.network_nodes.items()
+                                  if chain[i] in node['vnf_types'] and bfs_shortest_path(graph, assignment[i - 1],
+                                                                                         node_id) is not None]
                 if candidates:
                     assignment[i] = np.random.choice(candidates)
                 else:
-                    assignment[i] = None
+                    assignment = self.generate_feasible_assignment_for_request(req)
         return assignment
 
     def compute_objectives(self, solution):
+        """
+        計算目標值
+        :param solution: 產生的解
+        :return: 回傳一個array包含三個目標值
+        """
         f1 = objective_load_balance(solution, self.network_nodes, self.sfc_requests, self.vnf_traffic)
-        f2 = objective_end_to_end_delay_bfs(solution, self.network_nodes, self.edges, self.sfc_requests,
-                                            self.vnf_traffic)
+        f2 = objective_end_to_end_delay_bfs(solution, self.network_nodes, self.edges, self.vnf_traffic,
+                                            self.sfc_requests)
         f3 = objective_network_throughput(solution, self.edges, self.sfc_requests, self.vnf_traffic)
         return np.array([f1, f2, f3])
 
-    def objective_details(self, solution):
-        details = {}
-        # f1 詳細
-        node_loads = {node_id: 0.0 for node_id in self.network_nodes.keys()}
-        for req in self.sfc_requests:
-            demand = self.vnf_traffic[req['chain'][0]]
-            assignment = solution[req['id']]
-            for i, node_id in enumerate(assignment):
-                load_factor = self.network_nodes[node_id]['load_per_vnf'][req['chain'][i]]
-                node_loads[node_id] += demand * load_factor
-        details['node_loads'] = node_loads
-        details['f1_std'] = np.std(np.array(list(node_loads.values())))
-
-        # f2 詳細：對每筆 SFC，計算節點延遲、各段邊延遲及完整物理路徑
-        sfc_details = {}
-        total_delay = 0.0
-        graph = {node_id: self.network_nodes[node_id]['neighbors'] for node_id in self.network_nodes}
-        for req in self.sfc_requests:
-            demand = self.vnf_traffic[req['chain'][0]]
-            assignment = solution[req['id']]
-            node_delays = [self.network_nodes[assignment[i]]['processing_delay'][req['chain'][i]] for i in
-                           range(len(assignment))]
-            node_delay = sum(node_delays)
-            edge_delays = []
-            complete_path_segments = []
-            for i in range(len(assignment) - 1):
-                path = bfs_shortest_path(graph, assignment[i], assignment[i + 1])
-                if path is None:
-                    ed = 1e6
-                    path = [assignment[i], assignment[i + 1]]
-                else:
-                    ed = 0.0
-                    for j in range(len(path) - 1):
-                        n1, n2 = path[j], path[j + 1]
-                        if (n1, n2) in self.edges:
-                            cap = self.edges[(n1, n2)]
-                        elif (n2, n1) in self.edges:
-                            cap = self.edges[(n2, n1)]
-                        else:
-                            cap = 1e-6
-                        ed += demand / cap
-                edge_delays.append(ed)
-                complete_path_segments.append(path)
-            sfc_total = node_delay + sum(edge_delays)
-            # 串接各段完整路徑
-            complete_path = []
-            for idx, segment in enumerate(complete_path_segments):
-                if idx == 0:
-                    complete_path.extend(segment)
-                else:
-                    complete_path.extend(segment[1:])
-            sfc_details[req['id']] = {
-                'node_delays': node_delays,
-                'edge_delays': edge_delays,
-                'total_delay': sfc_total,
-                'complete_physical_path': complete_path
-            }
-            total_delay += sfc_total
-        details['sfc_delay_details'] = sfc_details
-        details['total_delay'] = total_delay
-        details['f2'] = total_delay
-
-        # f3 詳細：各邊流量利用率
-        graph_edges = {}
-        for (n1, n2) in self.edges:
-            graph_edges.setdefault(n1, []).append(n2)
-            graph_edges.setdefault(n2, []).append(n1)
-        edge_flow = {edge: 0.0 for edge in self.edges.keys()}
-        for req in self.sfc_requests:
-            demand = self.vnf_traffic[req['chain'][0]]
-            assignment = solution[req['id']]
-            for i in range(len(assignment) - 1):
-                path = bfs_shortest_path(graph_edges, assignment[i], assignment[i + 1])
-                if path is None:
-                    continue
-                for j in range(len(path) - 1):
-                    n1, n2 = path[j], path[j + 1]
-                    if (n1, n2) in self.edges:
-                        edge_flow[(n1, n2)] += demand
-                    elif (n2, n1) in self.edges:
-                        edge_flow[(n2, n1)] += demand
-        throughput_sum = 0.0
-        edge_utilization = {}
-        for edge, flow in edge_flow.items():
-            capacity = self.edges[edge]
-            utilization = flow / capacity
-            edge_utilization[edge] = {'flow': flow, 'capacity': capacity, 'utilization': utilization}
-            throughput_sum += utilization
-        epsilon = 1e-6
-        details['edge_utilization'] = edge_utilization
-        details['throughput_sum'] = throughput_sum
-        details['f3'] = 1 / (throughput_sum + epsilon)
-        return details
+    # def objective_details(self, solution):
+    #     details = {}
+    #     # f1 詳細
+    #     node_loads = {node_id: 0.0 for node_id in self.network_nodes.keys()}
+    #     for req in self.sfc_requests:
+    #         demand = self.vnf_traffic[req['chain'][0]]
+    #         assignment = solution[req['id']]
+    #         for i, node_id in enumerate(assignment):
+    #             load_factor = self.network_nodes[node_id]['load_per_vnf'][req['chain'][i]]
+    #             node_loads[node_id] += demand * load_factor
+    #     details['node_loads'] = node_loads
+    #     details['f1_std'] = np.std(np.array(list(node_loads.values())))
+    #
+    #     # f2 詳細：對每筆 SFC，計算節點延遲、各段邊延遲及完整物理路徑
+    #     sfc_details = {}
+    #     total_delay = 0.0
+    #     graph = {node_id: self.network_nodes[node_id]['neighbors'] for node_id in self.network_nodes}
+    #     for req in self.sfc_requests:
+    #         demand = self.vnf_traffic[req['chain'][0]]
+    #         assignment = solution[req['id']]
+    #         node_delays = [self.network_nodes[assignment[i]]['processing_delay'][req['chain'][i]] for i in
+    #                        range(len(assignment))]
+    #         node_delay = sum(node_delays)
+    #         edge_delays = []
+    #         complete_path_segments = []
+    #         for i in range(len(assignment) - 1):
+    #             path = bfs_shortest_path(graph, assignment[i], assignment[i + 1])
+    #             if path is None:
+    #                 ed = 1e6
+    #                 path = [assignment[i], assignment[i + 1]]
+    #             else:
+    #                 ed = 0.0
+    #                 for j in range(len(path) - 1):
+    #                     n1, n2 = path[j], path[j + 1]
+    #                     if (n1, n2) in self.edges:
+    #                         cap = self.edges[(n1, n2)]
+    #                     elif (n2, n1) in self.edges:
+    #                         cap = self.edges[(n2, n1)]
+    #                     else:
+    #                         cap = 1e-6
+    #                     ed += demand / cap
+    #             edge_delays.append(ed)
+    #             complete_path_segments.append(path)
+    #         sfc_total = node_delay + sum(edge_delays)
+    #         # 串接各段完整路徑
+    #         complete_path = []
+    #         for idx, segment in enumerate(complete_path_segments):
+    #             if idx == 0:
+    #                 complete_path.extend(segment)
+    #             else:
+    #                 complete_path.extend(segment[1:])
+    #         sfc_details[req['id']] = {
+    #             'node_delays': node_delays,
+    #             'edge_delays': edge_delays,
+    #             'total_delay': sfc_total,
+    #             'complete_physical_path': complete_path
+    #         }
+    #         total_delay += sfc_total
+    #     details['sfc_delay_details'] = sfc_details
+    #     details['total_delay'] = total_delay
+    #     details['f2'] = total_delay
+    #
+    #     # f3 詳細：各邊流量利用率
+    #     graph_edges = {}
+    #     for (n1, n2) in self.edges:
+    #         graph_edges.setdefault(n1, []).append(n2)
+    #         graph_edges.setdefault(n2, []).append(n1)
+    #     edge_flow = {edge: 0.0 for edge in self.edges.keys()}
+    #     for req in self.sfc_requests:
+    #         demand = self.vnf_traffic[req['chain'][0]]
+    #         assignment = solution[req['id']]
+    #         for i in range(len(assignment) - 1):
+    #             path = bfs_shortest_path(graph_edges, assignment[i], assignment[i + 1])
+    #             if path is None:
+    #                 continue
+    #             for j in range(len(path) - 1):
+    #                 n1, n2 = path[j], path[j + 1]
+    #                 if (n1, n2) in self.edges:
+    #                     edge_flow[(n1, n2)] += demand
+    #                 elif (n2, n1) in self.edges:
+    #                     edge_flow[(n2, n1)] += demand
+    #     throughput_sum = 0.0
+    #     edge_utilization = {}
+    #     for edge, flow in edge_flow.items():
+    #         capacity = self.edges[edge]
+    #         utilization = flow / capacity
+    #         edge_utilization[edge] = {'flow': flow, 'capacity': capacity, 'utilization': utilization}
+    #         throughput_sum += utilization
+    #     epsilon = 1e-6
+    #     details['edge_utilization'] = edge_utilization
+    #     details['throughput_sum'] = throughput_sum
+    #     details['f3'] = 1 / (throughput_sum + epsilon)
+    #     return details
 
     def fast_non_dominated_sort(self, population_fitness):
         num_solutions = len(population_fitness)
@@ -542,7 +605,7 @@ if __name__ == "__main__":
         network_nodes = c2l.nodes(f"../problem/nodes/nodes_{num}.csv")
         edges = c2l.edges(f"../problem/edges/edges_{num}.csv")
         vnf_traffic = c2l.vnfs("../problem/vnfs/vnfs_15.csv")
-        sfc_requests = c2l.demands("../problem/demands/demands_15.csv")
+        sfc_requests = c2l.demands("../problem/demands/demands.csv")
 
         population_size = 20
         generations = 100
@@ -554,19 +617,17 @@ if __name__ == "__main__":
         end_time = time.time()
         execution_time = end_time - start_time
         print("程式執行時間：", execution_time, "秒")
-
         # 建立 graph 用於 BFS (完整路徑)
-        graph = {node_id: node['neighbors'] for node_id, node in {n['id']: n for n in network_nodes}.items()}
-
+        # graph = {node_id: node['neighbors'] for node_id, node in {n['id']: n for n in network_nodes}.items()}
         # 輸出格式
         print(f"最佳解 (Pareto Front) 共 {len(pareto_front)} 個：")
+        graph = build_graph(network_nodes)
         for sol in pareto_front:
             print("-----")
             print("各請求的處理節點序列與完整路徑：")
             for req in sfc_requests:
-                assignment = sol[req['id']]
-                complete_path = get_complete_path(assignment, graph)
-                print(f"請求 {req['id']}：處理節點 = {assignment}，完整路徑 = {complete_path}")
+                complete_path = get_complete_path(sol[req['id']], graph)
+                print(f"請求 {req['id']}：處理節點 = {sol[req['id']]}，完整路徑 = {complete_path}")
         print("-----")
 
         # 輸出各目標函數結果
@@ -582,6 +643,7 @@ if __name__ == "__main__":
         for sol in pareto_front:
             obj_vals = nsga4_sfc.compute_objectives(sol)
             solutions_data.append({
+                "Execution_time": str(execution_time),
                 'Solution': str(sol),
                 'LoadBalance': obj_vals[0],
                 'Delay': obj_vals[1],
@@ -602,6 +664,7 @@ if __name__ == "__main__":
         ax.set_box_aspect([1, 1, 1])
         ax.view_init(elev=30, azim=45)
         plt.savefig(f"graph1/graph1_{num}.png")
+        plt.close()
         # plt.show()
 
         # === 二維散點圖：兩兩目標比較 ===
@@ -627,6 +690,7 @@ if __name__ == "__main__":
 
         plt.tight_layout()
         plt.savefig(f"graph2/graph2_{num}.png")
+        plt.close()
         # plt.show()
 
         df.to_csv(f'csv/NSGA4_solutions_data_{num}.csv', index=False)
