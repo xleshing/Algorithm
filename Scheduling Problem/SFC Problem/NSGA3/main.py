@@ -688,98 +688,102 @@ if __name__ == "__main__":
     os.makedirs("graph1", exist_ok=True)
     os.makedirs("graph2", exist_ok=True)
     os.makedirs("csv", exist_ok=True)
-    for num in range(15, 105, 5):  # 包含15~100，間距5
-        c2l = csv2list()
-        network_nodes = c2l.nodes(f"../problem/nodes/nodes_{num}.csv")
-        edges = c2l.edges(f"../problem/edges/edges_{num}.csv")
-        vnf_traffic = c2l.vnfs("../problem/vnfs/vnfs_15.csv")
-        sfc_requests = c2l.demands("../problem/demands/demands.csv")
+    for i in range(1, 11):
+        os.makedirs(f"graph1/data{i}", exist_ok=True)
+        os.makedirs(f"graph2/data{i}", exist_ok=True)
+        os.makedirs(f"csv/data{i}", exist_ok=True)
+        for num in range(15, 105, 5):  # 包含15~100，間距5
+            c2l = csv2list()
+            network_nodes = c2l.nodes(f"../problem/data{i}/nodes/nodes_{num}.csv")
+            edges = c2l.edges(f"../problem/data{i}/edges/edges_{num}.csv")
+            vnf_traffic = c2l.vnfs(f"../problem/data{i}/vnfs/vnfs_15.csv")
+            sfc_requests = c2l.demands("../problem/demands/demands.csv")
 
-        population_size = 20
-        generations = 100
+            population_size = 20
+            generations = 100
 
-        # 三個目標函數依序為：節點負載均衡、端到端延遲、網路吞吐量
-        objectives = [objective_load_balance, objective_end_to_end_delay_bfs, objective_network_throughput]
+            # 三個目標函數依序為：節點負載均衡、端到端延遲、網路吞吐量
+            objectives = [objective_load_balance, objective_end_to_end_delay_bfs, objective_network_throughput]
 
-        nsga3_sfc = NSGA3_SFC(network_nodes, edges, vnf_traffic, sfc_requests, population_size, generations, objectives)
+            nsga3_sfc = NSGA3_SFC(network_nodes, edges, vnf_traffic, sfc_requests, population_size, generations, objectives)
 
-        start_time = time.time()
-        best_solutions = nsga3_sfc.evolve()
-        end_time = time.time()
-        execution_time = end_time - start_time
-        print("程式執行時間：", execution_time, "秒")
-        # 輸出最佳解（Pareto 前沿解）
-        print("最佳解 (Pareto Front) 共", len(best_solutions), "個：")
-        graph = build_graph(network_nodes)
-        for sol in best_solutions:
+            start_time = time.time()
+            best_solutions = nsga3_sfc.evolve()
+            end_time = time.time()
+            execution_time = end_time - start_time
+            print("程式執行時間：", execution_time, "秒")
+            # 輸出最佳解（Pareto 前沿解）
+            print("最佳解 (Pareto Front) 共", len(best_solutions), "個：")
+            graph = build_graph(network_nodes)
+            for sol in best_solutions:
+                print("-----")
+                print("各請求的處理節點序列與完整路徑：")
+                for req in sfc_requests:
+                    full_path = get_complete_path(sol[req['id']], graph)
+                    print(f"請求 {req['id']}：處理節點 = {sol[req['id']]}，完整路徑 = {full_path}")
             print("-----")
-            print("各請求的處理節點序列與完整路徑：")
-            for req in sfc_requests:
-                full_path = get_complete_path(sol[req['id']], graph)
-                print(f"請求 {req['id']}：處理節點 = {sol[req['id']]}，完整路徑 = {full_path}")
-        print("-----")
 
-        # 計算並輸出每個最佳解的目標函數值
-        for sol in best_solutions:
-            obj_vals = nsga3_sfc.compute_objectives(sol)
-            print("\n目標函數結果：")
-            print(f"節點負載均衡（標準差）： {obj_vals[0]:.4f}")
-            print(f"端到端延遲： {obj_vals[1]:.4f}")
-            print(f"網路吞吐量目標： {obj_vals[2]:.4f}")
+            # 計算並輸出每個最佳解的目標函數值
+            for sol in best_solutions:
+                obj_vals = nsga3_sfc.compute_objectives(sol)
+                print("\n目標函數結果：")
+                print(f"節點負載均衡（標準差）： {obj_vals[0]:.4f}")
+                print(f"端到端延遲： {obj_vals[1]:.4f}")
+                print(f"網路吞吐量目標： {obj_vals[2]:.4f}")
 
-        # 將各最佳解目標值彙整到 DataFrame 中呈現
-        objectives_data = []
-        for sol in best_solutions:
-            obj_vals = nsga3_sfc.compute_objectives(sol)
-            objectives_data.append({
-                "Execution_time": str(execution_time),
-                'Solution': str(sol),
-                'LoadBalance': obj_vals[0],
-                'Delay': obj_vals[1],
-                'Throughput': obj_vals[2]
-            })
-        df = pd.DataFrame(objectives_data)
-        print("\n各目標函數的彙總數據：")
-        print(df)
+            # 將各最佳解目標值彙整到 DataFrame 中呈現
+            objectives_data = []
+            for sol in best_solutions:
+                obj_vals = nsga3_sfc.compute_objectives(sol)
+                objectives_data.append({
+                    "Execution_time": str(execution_time),
+                    'Solution': str(sol),
+                    'LoadBalance': obj_vals[0],
+                    'Delay': obj_vals[1],
+                    'Throughput': obj_vals[2]
+                })
+            df = pd.DataFrame(objectives_data)
+            print("\n各目標函數的彙總數據：")
+            print(df)
 
-        # === 3D 散點圖：三個目標 ===
-        fig = plt.figure(figsize=(10, 8))
-        ax = fig.add_subplot(111, projection='3d')
-        ax.scatter(df['LoadBalance'], df['Delay'], df['Throughput'], c='blue', marker='o')
-        ax.set_xlabel('LoadBalance')
-        ax.set_ylabel('Delay')
-        ax.set_zlabel('Throughput')
-        ax.set_title('NSGA3 Pareto Front')
-        ax.set_box_aspect([1, 1, 1])
-        ax.view_init(elev=30, azim=45)
-        plt.savefig(f"graph1/graph1_{num}.png")
-        plt.close()
-        # plt.show()
+            # === 3D 散點圖：三個目標 ===
+            fig = plt.figure(figsize=(10, 8))
+            ax = fig.add_subplot(111, projection='3d')
+            ax.scatter(df['LoadBalance'], df['Delay'], df['Throughput'], c='blue', marker='o')
+            ax.set_xlabel('LoadBalance')
+            ax.set_ylabel('Delay')
+            ax.set_zlabel('Throughput')
+            ax.set_title('NSGA3 Pareto Front')
+            ax.set_box_aspect([1, 1, 1])
+            ax.view_init(elev=30, azim=45)
+            plt.savefig(f"graph1/data{i}/graph1_{num}.png")
+            plt.close()
+            # plt.show()
 
-        # === 二維散點圖：兩兩目標比較 ===
-        fig, axs = plt.subplots(1, 3, figsize=(18, 5))
+            # === 二維散點圖：兩兩目標比較 ===
+            fig, axs = plt.subplots(1, 3, figsize=(18, 5))
 
-        # LoadBalance 與 Delay
-        axs[0].scatter(df['LoadBalance'], df['Delay'], c='red', marker='o')
-        axs[0].set_xlabel('LoadBalance')
-        axs[0].set_ylabel('Delay')
-        axs[0].set_title('NSGA3 LoadBalance vs Delay')
+            # LoadBalance 與 Delay
+            axs[0].scatter(df['LoadBalance'], df['Delay'], c='red', marker='o')
+            axs[0].set_xlabel('LoadBalance')
+            axs[0].set_ylabel('Delay')
+            axs[0].set_title('NSGA3 LoadBalance vs Delay')
 
-        # LoadBalance 與 Throughput
-        axs[1].scatter(df['LoadBalance'], df['Throughput'], c='green', marker='o')
-        axs[1].set_xlabel('LoadBalance')
-        axs[1].set_ylabel('Throughput')
-        axs[1].set_title('NSGA3 LoadBalance vs Throughput')
+            # LoadBalance 與 Throughput
+            axs[1].scatter(df['LoadBalance'], df['Throughput'], c='green', marker='o')
+            axs[1].set_xlabel('LoadBalance')
+            axs[1].set_ylabel('Throughput')
+            axs[1].set_title('NSGA3 LoadBalance vs Throughput')
 
-        # Delay 與 Throughput
-        axs[2].scatter(df['Delay'], df['Throughput'], c='purple', marker='o')
-        axs[2].set_xlabel('Delay')
-        axs[2].set_ylabel('Throughput')
-        axs[2].set_title('NSGA3 Delay vs Throughput')
+            # Delay 與 Throughput
+            axs[2].scatter(df['Delay'], df['Throughput'], c='purple', marker='o')
+            axs[2].set_xlabel('Delay')
+            axs[2].set_ylabel('Throughput')
+            axs[2].set_title('NSGA3 Delay vs Throughput')
 
-        plt.tight_layout()
-        plt.savefig(f"graph2/graph2_{num}.png")
-        plt.close()
-        # plt.show()
+            plt.tight_layout()
+            plt.savefig(f"graph2/data{i}/graph2_{num}.png")
+            plt.close()
+            # plt.show()
 
-        df.to_csv(f'csv/NSGA3_solutions_data_{num}.csv', index=False)
+            df.to_csv(f'csv/data{i}/NSGA3_solutions_data_{num}.csv', index=False)
