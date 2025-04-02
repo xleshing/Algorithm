@@ -7,6 +7,11 @@ from csv2list import csv2list
 import os
 
 
+class FindingFailed(Exception):
+    """自訂例外，用來表示跳過當前請求"""
+    pass
+
+
 #############################################
 # 輔助函數：BFS 找最短路徑
 #############################################
@@ -28,17 +33,6 @@ def bfs_shortest_path(graph, start, goal):
                 new_path.append(neighbor)
                 queue.append(new_path)
     return None
-
-
-def build_graph(network_nodes):
-    """
-    根據 network_nodes 建立圖結構，
-    採用與 NSGA4 相同的方法：利用字典生成式建立 key 為節點 id，
-    value 為該節點的鄰居列表。
-    """
-    # 注意：假設 network_nodes 為一個列表，每個元素是一個字典，
-    # 且每個字典至少包含 'id' 與 'neighbors' 欄位。
-    return {node['id']: node['neighbors'] for node in network_nodes}
 
 
 def get_complete_path(assignment, graph):
@@ -80,7 +74,7 @@ def objective_load_balance(solution, network_nodes, sfc_requests, vnf_traffic):
     return np.std(loads_array)
 
 
-def objective_end_to_end_delay_bfs(solution, network_nodes, edges, vnf_traffic, sfc_requests):
+def average_objective_end_to_end_delay_bfs(solution, network_nodes, edges, vnf_traffic, sfc_requests):
     """
     目標2：最小化端到端延遲
     對每筆 SFC，計算：
@@ -112,7 +106,7 @@ def objective_end_to_end_delay_bfs(solution, network_nodes, edges, vnf_traffic, 
                         raise ValueError(f"{n1, n2} not in edges")
                     edge_delay += demand / cap
         total_delay += (node_delay + edge_delay)
-    return total_delay
+    return total_delay / len(sfc_requests)
 
 
 def objective_network_throughput(solution, edges, sfc_requests, vnf_traffic):
@@ -186,28 +180,58 @@ class NSGA4_SFC:
         self.generations = generations
         # 初始種群：每筆解為一個字典 { request_id: [node1, node2, ...] }
         self.population = np.array([self.generate_feasible_solution() for _ in range(population_size)])
+        self.graph = {node_id: self.network_nodes[node_id]['neighbors'] for node_id in self.network_nodes}
 
     def generate_feasible_solution(self):
+        """
+        集群初始化
+        """
         solution = {}
-        for req in self.sfc_requests:
-            solution[req['id']] = self.generate_feasible_assignment_for_request(req)
+        for req in list(self.sfc_requests):
+            success = False
+            for _ in range(500):
+                try:
+                    solution[req['id']] = self.generate_feasible_assignment_for_request(req)
+                    success = True
+                    break
+                except FindingFailed:
+                    # 跳過此請求，繼續處理下一個請求
+                    continue
+            if not success:
+                print(f"Request {req['id']} failed to generate a feasible assignment after 500 tries. Deleting it.")
+                self.sfc_requests.remove(req)
         return solution
 
     def generate_feasible_assignment_for_request(self, req):
         """
-        對單筆請求，初始化一個可行的處理節點序列（不要求節點間相鄰），
-        並利用 repair_assignment_for_request 檢查與修正分配方案。
+        對單筆請求，初始化一個可行的處理節點序列（不要求節點間相鄰）
         """
         chain = req['chain']
         assignment = []
-        for vnf in chain:
-            candidates = [node_id for node_id, node in self.network_nodes.items() if vnf in node['vnf_types']]
+        for i, vnf in enumerate(chain):
+            candidates = []
+            if i > 0:
+                for node_id, node in self.network_nodes.items():
+                    if vnf in node['vnf_types'] and bfs_shortest_path(self.graph, assignment[i - 1],
+                                                                      node_id) is not None:
+                        candidates.append(node_id)
+            else:
+                for node_id, node in self.network_nodes.items():
+                    if vnf in node['vnf_types']:
+                        candidates.append(node_id)
             if not candidates:
-                raise ValueError(f"請求 {req['id']} 的 VNF {vnf} 無法分配到任何節點")
-            assignment.append(np.random.choice(candidates))
+                raise FindingFailed(f"Request {req['id']} failed to generate a feasible assignment after 500 tries. "
+                                    f"Deleting it.")
+            else:
+                assignment.append(np.random.choice(candidates))
 
-        # 利用 repair_assignment_for_request 檢查並修正分配方案
-        assignment = self.repair_assignment_for_request(req, assignment)
+        # # 利用 try/except 捕捉遞迴錯誤
+        # try:
+        #     assignment = self.repair_assignment_for_request(req, assignment)
+        # except RecursionError:
+        #     print(f"RecursionError occurred for req {req['id']}, skipping this request.")
+        #     # 遇到最大遞迴深度時，拋出自訂例外以便在外層跳過該請求
+        #     self.sfc_requests.remove(req)
         return assignment
 
     def repair_assignment_for_request(self, req, assignment):
@@ -220,9 +244,6 @@ class NSGA4_SFC:
         :return: 修正後的分配列表
         """
         chain = req['chain']
-        # 建立網路圖：根據每個節點的鄰居資訊
-        graph = {node_id: self.network_nodes[node_id]['neighbors'] for node_id in self.network_nodes}
-
         for i in range(len(assignment)):
             valid = True
             # 檢查當前節點是否具備處理對應 VNF 的能力
@@ -232,7 +253,7 @@ class NSGA4_SFC:
             if i > 0:
                 prev_node = assignment[i - 1]
                 # 使用 BFS 檢查從前一個節點到當前節點是否存在可行路徑
-                if bfs_shortest_path(graph, prev_node, assignment[i]) is None:
+                if bfs_shortest_path(self.graph, prev_node, assignment[i]) is None:
                     valid = False
             # 如果不符合要求，則重新選擇一個候選節點
             if not valid:
@@ -243,7 +264,7 @@ class NSGA4_SFC:
                 else:
                     # 從所有能處理該 VNF 的節點中挑選出與前一個節點連通的候選
                     candidates = [node_id for node_id, node in self.network_nodes.items()
-                                  if chain[i] in node['vnf_types'] and bfs_shortest_path(graph, assignment[i - 1],
+                                  if chain[i] in node['vnf_types'] and bfs_shortest_path(self.graph, assignment[i - 1],
                                                                                          node_id) is not None]
                 if candidates:
                     assignment[i] = np.random.choice(candidates)
@@ -258,8 +279,8 @@ class NSGA4_SFC:
         :return: 回傳一個array包含三個目標值
         """
         f1 = objective_load_balance(solution, self.network_nodes, self.sfc_requests, self.vnf_traffic)
-        f2 = objective_end_to_end_delay_bfs(solution, self.network_nodes, self.edges, self.vnf_traffic,
-                                            self.sfc_requests)
+        f2 = average_objective_end_to_end_delay_bfs(solution, self.network_nodes, self.edges, self.vnf_traffic,
+                                                    self.sfc_requests)
         f3 = objective_network_throughput(solution, self.edges, self.sfc_requests, self.vnf_traffic)
         return np.array([f1, f2, f3])
 
@@ -482,8 +503,13 @@ class NSGA4_SFC:
                 rid = req_ids[i]
                 child1[rid], child2[rid] = child2[rid], child1[rid]
         for req in self.sfc_requests:
-            child1[req['id']] = self.repair_assignment_for_request(req, child1[req['id']])
-            child2[req['id']] = self.repair_assignment_for_request(req, child2[req['id']])
+            try:
+                child1[req['id']] = self.repair_assignment_for_request(req, child1[req['id']])
+                child2[req['id']] = self.repair_assignment_for_request(req, child2[req['id']])
+            except FindingFailed as e:
+                print(f"Crossover failed: {e}")
+                child1 = parent1.copy()
+                child2 = parent2.copy()
         return child1, child2
 
     def mutation(self, solution):
@@ -496,7 +522,11 @@ class NSGA4_SFC:
         candidates = [node_id for node_id, node in self.network_nodes.items() if chain[pos] in node['vnf_types']]
         if candidates:
             assignment[pos] = np.random.choice(candidates)
-        sol[rid] = self.repair_assignment_for_request(req, assignment)
+        try:
+            sol[rid] = self.repair_assignment_for_request(req, assignment)
+        except FindingFailed as e:
+            print(f"Mutation failed: {e}")
+            sol = solution.copy()
         return sol
 
     def evolve(self):
@@ -625,12 +655,11 @@ if __name__ == "__main__":
             # graph = {node_id: node['neighbors'] for node_id, node in {n['id']: n for n in network_nodes}.items()}
             # 輸出格式
             print(f"最佳解 (Pareto Front) 共 {len(pareto_front)} 個：")
-            graph = build_graph(network_nodes)
             for sol in pareto_front:
                 print("-----")
                 print("各請求的處理節點序列與完整路徑：")
                 for req in sfc_requests:
-                    complete_path = get_complete_path(sol[req['id']], graph)
+                    complete_path = get_complete_path(sol[req['id']], nsga4_sfc.graph)
                     print(f"請求 {req['id']}：處理節點 = {sol[req['id']]}，完整路徑 = {complete_path}")
             print("-----")
 
@@ -650,7 +679,7 @@ if __name__ == "__main__":
                     "Execution_time": str(execution_time),
                     'Solution': str(sol),
                     'LoadBalance': obj_vals[0],
-                    'Delay': obj_vals[1],
+                    'Average Delay': obj_vals[1],
                     'Throughput': obj_vals[2]
                 })
             df = pd.DataFrame(solutions_data)
@@ -660,9 +689,9 @@ if __name__ == "__main__":
             # === 3D 散點圖：三個目標 ===
             fig = plt.figure(figsize=(10, 8))
             ax = fig.add_subplot(111, projection='3d')
-            ax.scatter(df['LoadBalance'], df['Delay'], df['Throughput'], c='blue', marker='o')
+            ax.scatter(df['LoadBalance'], df['Average Delay'], df['Throughput'], c='blue', marker='o')
             ax.set_xlabel('LoadBalance')
-            ax.set_ylabel('Delay')
+            ax.set_ylabel('Average Delay')
             ax.set_zlabel('Throughput')
             ax.set_title('NSGA4 Pareto Front')
             ax.set_box_aspect([1, 1, 1])
@@ -674,11 +703,11 @@ if __name__ == "__main__":
             # === 二維散點圖：兩兩目標比較 ===
             fig, axs = plt.subplots(1, 3, figsize=(18, 5))
 
-            # LoadBalance 與 Delay
-            axs[0].scatter(df['LoadBalance'], df['Delay'], c='red', marker='o')
+            # LoadBalance 與 Average Delay
+            axs[0].scatter(df['LoadBalance'], df['Average Delay'], c='red', marker='o')
             axs[0].set_xlabel('LoadBalance')
-            axs[0].set_ylabel('Delay')
-            axs[0].set_title('NSGA4 LoadBalance vs Delay')
+            axs[0].set_ylabel('Average Delay')
+            axs[0].set_title('NSGA4 LoadBalance vs Average Delay')
 
             # LoadBalance 與 Throughput
             axs[1].scatter(df['LoadBalance'], df['Throughput'], c='green', marker='o')
@@ -686,11 +715,11 @@ if __name__ == "__main__":
             axs[1].set_ylabel('Throughput')
             axs[1].set_title('NSGA4 LoadBalance vs Throughput')
 
-            # Delay 與 Throughput
-            axs[2].scatter(df['Delay'], df['Throughput'], c='purple', marker='o')
-            axs[2].set_xlabel('Delay')
+            # Average Delay 與 Throughput
+            axs[2].scatter(df['Average Delay'], df['Throughput'], c='purple', marker='o')
+            axs[2].set_xlabel('Average Delay')
             axs[2].set_ylabel('Throughput')
-            axs[2].set_title('NSGA4 Delay vs Throughput')
+            axs[2].set_title('NSGA4 Average Delay vs Throughput')
 
             plt.tight_layout()
             plt.savefig(f"graph2/data{i}/graph2_{num}.png")

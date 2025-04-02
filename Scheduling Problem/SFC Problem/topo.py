@@ -63,8 +63,8 @@ from csv2list import csv2list
 # 創建無向圖
 
 c2l = csv2list()
-network_nodes = c2l.nodes("./15n-25v-100r/nodes.csv")
-edges = c2l.edges("./15n-25v-100r/edges.csv")
+network_nodes = c2l.nodes(f"./problem/data5/nodes/nodes_15.csv")
+edges = c2l.edges(f"./problem/data5/edges/edges_15.csv")
 
 G = nx.Graph()
 
@@ -83,7 +83,8 @@ for (u, v), weight in edges.items():
 pos = nx.spring_layout(G, seed=42)
 
 # 建立一個圖形，左邊顯示拓樸圖，右邊顯示節點資料表
-fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(18, 8))
+# fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(18, 8))
+fig, (ax1) = plt.subplots(1, figsize=(8, 8))
 
 # ----- 左側：畫出網路拓樸 -----
 nx.draw(G, pos, with_labels=True, node_size=1500, node_color="lightblue", font_size=10, ax=ax1)
@@ -105,14 +106,14 @@ ax1.axis("off")
 #     ])
 
 # 隱藏軸
-ax2.axis('tight')
-ax2.axis('off')
+# ax2.axis('tight')
+# ax2.axis('off')
 # 建立表格
 # table = ax2.table(cellText=table_data, colLabels=columns, loc='center')
 # table.auto_set_font_size(False)
 # table.set_fontsize(10)
 # table.scale(1, 2)
-ax2.set_title("Node Data Table", fontweight="bold", pad=20)
+# ax2.set_title("Node Data Table", fontweight="bold", pad=20)
 
 plt.tight_layout()
 plt.show()
