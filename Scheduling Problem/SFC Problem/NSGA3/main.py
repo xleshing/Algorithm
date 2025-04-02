@@ -719,7 +719,7 @@ if __name__ == "__main__":
     os.makedirs("graph1", exist_ok=True)
     os.makedirs("graph2", exist_ok=True)
     os.makedirs("csv", exist_ok=True)
-    for i in range(5, 6):
+    for i in range(1, 11):
         os.makedirs(f"graph1/data{i}", exist_ok=True)
         os.makedirs(f"graph2/data{i}", exist_ok=True)
         os.makedirs(f"csv/data{i}", exist_ok=True)

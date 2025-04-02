@@ -179,8 +179,8 @@ class NSGA4_SFC:
         self.population_size = population_size
         self.generations = generations
         # 初始種群：每筆解為一個字典 { request_id: [node1, node2, ...] }
-        self.population = np.array([self.generate_feasible_solution() for _ in range(population_size)])
         self.graph = {node_id: self.network_nodes[node_id]['neighbors'] for node_id in self.network_nodes}
+        self.population = np.array([self.generate_feasible_solution() for _ in range(population_size)])
 
     def generate_feasible_solution(self):
         """
