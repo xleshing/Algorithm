@@ -76,3 +76,11 @@ plt.title('NSGA3 vs NSGA4 with different Node Num')
 plt.legend()
 plt.grid(True)
 plt.show()
+
+data = [{
+    "NSGA3": [nsga3_std_sum[n] / 10 for n in sorted(nsga3_std_sum.keys())],
+    "NSGA4": [nsga4_std_sum[n] / 10 for n in sorted(nsga4_std_sum.keys())],
+
+}]
+df = pd.DataFrame(data)
+df.to_csv(f'analyze.csv', index=False)
