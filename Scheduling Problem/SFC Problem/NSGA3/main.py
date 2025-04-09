@@ -619,22 +619,54 @@ class NSGA3_SFC:
             sol = solution.copy()
         return sol
 
+    # def evolve(self):
+    #     for _ in range(self.generations):
+    #         new_population = []
+    #         selected = self.selection()
+    #         for i in range(0, self.population_size, 2):
+    #             parent1 = selected[i]
+    #             parent2 = selected[(i + 1) % self.population_size]
+    #             child1, child2 = self.crossover(parent1, parent2)
+    #             new_population.append(self.mutation(child1))
+    #             new_population.append(self.mutation(child2))
+    #         self.population = new_population[:self.population_size]
+    #     pop = self.population.copy()
+    #     pop_fitness = np.array([self.compute_objectives(sol) for sol in self.population])
+    #     fronts = self.non_dominated_sort_by_front(pop_fitness)
+    #     pareto_front = [pop[idx] for idx in fronts[0]]
+    #     return np.array(pareto_front)
     def evolve(self):
+        # 用來存儲每輪的最佳前緣
+        generation_pareto_fronts = []
+
         for _ in range(self.generations):
             new_population = []
             selected = self.selection()
-            for i in range(0, self.population_size, 2):
+            pop_size = len(selected)
+            for i in range(0, pop_size, 2):
                 parent1 = selected[i]
-                parent2 = selected[(i + 1) % self.population_size]
+                parent2 = selected[(i + 1) % pop_size]
                 child1, child2 = self.crossover(parent1, parent2)
                 new_population.append(self.mutation(child1))
                 new_population.append(self.mutation(child2))
-            self.population = new_population[:self.population_size]
+            self.population = np.array(new_population[:self.population_size])
+
+            # 計算當前人口中每個解的目標值
+            pop = self.population.copy()
+            pop_fitness = np.array([self.compute_objectives(sol) for sol in pop])
+
+            # 對當前種群進行非支配排序，獲得最佳前緣
+            fronts = self.non_dominated_sort_by_front(pop_fitness)
+            current_pareto_front = [pop[idx] for idx in fronts[0]]
+
+            # 保存當前輪的最佳前緣
+            generation_pareto_fronts.append(np.array(current_pareto_front))
+
         pop = self.population.copy()
         pop_fitness = np.array([self.compute_objectives(sol) for sol in self.population])
         fronts = self.non_dominated_sort_by_front(pop_fitness)
         pareto_front = [pop[idx] for idx in fronts[0]]
-        return np.array(pareto_front)
+        return np.array(pareto_front), generation_pareto_fronts
 
 
 #############################################
@@ -719,11 +751,11 @@ if __name__ == "__main__":
     os.makedirs("graph1", exist_ok=True)
     os.makedirs("graph2", exist_ok=True)
     os.makedirs("csv", exist_ok=True)
-    for i in range(1, 11):
+    for i in range(2, 3):
         os.makedirs(f"graph1/data{i}", exist_ok=True)
         os.makedirs(f"graph2/data{i}", exist_ok=True)
         os.makedirs(f"csv/data{i}", exist_ok=True)
-        for num in range(15, 105, 5):  # 包含15~100，間距5
+        for num in range(100, 105, 5):  # 包含15~100，間距5
             c2l = csv2list()
             network_nodes = c2l.nodes(f"../problem/data{i}/nodes/nodes_{num}.csv")
             edges = c2l.edges(f"../problem/data{i}/edges/edges_{num}.csv")
@@ -740,7 +772,7 @@ if __name__ == "__main__":
                                   objectives)
 
             start_time = time.time()
-            best_solutions = nsga3_sfc.evolve()
+            best_solutions, generation_pareto_fronts = nsga3_sfc.evolve()
             end_time = time.time()
             execution_time = end_time - start_time
             print("程式執行時間：", execution_time, "秒")
@@ -818,3 +850,21 @@ if __name__ == "__main__":
             # plt.show()
 
             df.to_csv(f'csv/data{i}/NSGA3_solutions_data_{num}.csv', index=False)
+
+            generation_objectives_data = []
+            for each_sol in range(len(generation_pareto_fronts)):
+                obj_data = []
+                for sol in generation_pareto_fronts[each_sol]:
+                    obj_vals = nsga3_sfc.compute_objectives(sol)
+                    obj_data.append({
+                        'LoadBalance': obj_vals[0],
+                        'Average Delay': obj_vals[1],
+                        'Throughput': obj_vals[2]
+                    })
+                generation_objectives_data.append({
+                    "Generation": each_sol,
+                    "sol": obj_data
+                })
+            generation_df = pd.DataFrame(generation_objectives_data)
+            print(generation_df)
+            generation_df.to_csv(f'csv/NSGA3_generation_solutions_data{i}_{num}.csv', index=False)

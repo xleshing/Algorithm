@@ -248,6 +248,9 @@ class NSGA4_LoadBalancing:
         return solution
 
     def evolve(self):
+        # 用來存儲每輪的最佳前緣
+        generation_pareto_fronts = []
+
         for _ in range(self.generations):
             new_population = []
             # NSGA4 選擇操作取得下一代候選解
@@ -260,12 +263,23 @@ class NSGA4_LoadBalancing:
                 new_population.append(self.mutation(child1))
                 new_population.append(self.mutation(child2))
             self.population = np.array(new_population[:self.population_size])
+
+            # 計算當前人口中每個解的目標值
+            pop = self.population.copy()
+            pop_fitness = np.array([self.fitness(sol) for sol in pop])
+
+            # 對當前種群進行非支配排序，獲得最佳前緣
+            fronts = self.non_dominated_sort_by_front(pop_fitness)
+            current_pareto_front = [pop[idx] for idx in fronts[0]]
+
+            # 保存當前輪的最佳前緣
+            generation_pareto_fronts.append(np.array(current_pareto_front))
         # 演化結束後，返回最終種群中的 Pareto 前沿（非支配解）
         pop = self.population.copy()
         pop_fitness = np.array([self.fitness(sol) for sol in pop])
         fronts = self.non_dominated_sort_by_front(pop_fitness)
         pareto_front = [pop[idx] for idx in fronts[0]]
-        return np.array(pareto_front)
+        return np.array(pareto_front), generation_pareto_fronts
 
 
 #############################################
@@ -275,14 +289,14 @@ class NSGA4_LoadBalancing:
 def objective_latency(solution, usage, item_values, server_capacities):
     # 請求處理延遲最小化：用各伺服器負載率的最大值近似
     load_ratios = usage.flatten() / server_capacities.flatten()
-    return np.max(load_ratios)
+    return np.sum(load_ratios)
 
 
-def objective_throughput(solution, usage, item_values, server_capacities):
-    # 系統吞吐量最大化：用各伺服器 1/(1+負載率) 之和近似，取負值後最小化
-    load_ratios = usage.flatten() / server_capacities.flatten()
-    throughput = np.sum(1.0 / (1 + load_ratios))
-    return -throughput
+# def objective_throughput(solution, usage, item_values, server_capacities):
+#     # 系統吞吐量最大化：用各伺服器 1/(1+負載率) 之和近似，取負值後最小化
+#     load_ratios = usage.flatten() / server_capacities.flatten()
+#     throughput = np.sum(1.0 / (1 + load_ratios))
+#     return -throughput
 
 
 def objective_resource_utilization(solution, usage, item_values, server_capacities):
@@ -291,11 +305,11 @@ def objective_resource_utilization(solution, usage, item_values, server_capaciti
     return np.std(load_ratios)
 
 
-def objective_error_rate(solution, usage, item_values, server_capacities):
-    # 錯誤率最小化：假定負載率超過 0.8 會產生錯誤，累計超出部分
-    load_ratios = usage.flatten() / server_capacities.flatten()
-    errors = np.maximum(0, load_ratios - 0.8)
-    return np.sum(errors)
+# def objective_error_rate(solution, usage, item_values, server_capacities):
+#     # 錯誤率最小化：假定負載率超過 0.8 會產生錯誤，累計超出部分
+#     load_ratios = usage.flatten() / server_capacities.flatten()
+#     errors = np.maximum(0, load_ratios - 0.8)
+#     return np.sum(errors)
 
 
 def objective_cost(solution, usage, item_values, server_capacities):
@@ -303,17 +317,19 @@ def objective_cost(solution, usage, item_values, server_capacities):
     load_ratios = usage.flatten() / server_capacities.flatten()
     return np.sum(load_ratios)
 
+#
+# def objective_availability(solution, usage, item_values, server_capacities):
+#     # 服務可用性最大化：以伺服器剩餘容量比例的最小值表示，取負值後最小化
+#     slack = (server_capacities.flatten() - usage.flatten()) / server_capacities.flatten()
+#     return -np.min(slack)
 
-def objective_availability(solution, usage, item_values, server_capacities):
-    # 服務可用性最大化：以伺服器剩餘容量比例的最小值表示，取負值後最小化
-    slack = (server_capacities.flatten() - usage.flatten()) / server_capacities.flatten()
-    return -np.min(slack)
+#
+# def objective_load_balancing(solution, usage, item_values, server_capacities):
+#     # 負載均衡效果最優化：最小化最大與最小負載率的差
+#     load_ratios = usage.flatten() / server_capacities.flatten()
+#     return np.max(load_ratios) - np.min(load_ratios)
 
-
-def objective_load_balancing(solution, usage, item_values, server_capacities):
-    # 負載均衡效果最優化：最小化最大與最小負載率的差
-    load_ratios = usage.flatten() / server_capacities.flatten()
-    return np.max(load_ratios) - np.min(load_ratios)
+# def latency_curve(usage):
 
 
 #############################################
@@ -324,19 +340,21 @@ if __name__ == "__main__":
     num_servers = 5
     num_requests = 50
     population_size = 20
-    generations = 50
+    generations = 100
 
     num_objectives = 1  # 每個請求只有一個負載值
     item_values = np.random.randint(1, 5, [num_requests, num_objectives])
     server_capacities = np.random.randint(50, 61, [num_servers, num_objectives])
 
     # 目標函數列表（共 7 個目標）
-    objectives = [objective_latency, objective_throughput, objective_resource_utilization,
-                  objective_error_rate, objective_cost, objective_availability, objective_load_balancing]
+    # objectives = [objective_latency, objective_throughput, objective_resource_utilization,
+    #               objective_error_rate, objective_cost, objective_availability, objective_load_balancing]
+
+    objectives = [objective_resource_utilization, objective_latency, objective_cost]
 
     nsga4 = NSGA4_LoadBalancing(num_servers, num_requests, population_size, generations, objectives, item_values,
                                 server_capacities)
-    pareto_front = nsga4.evolve()
+    pareto_front, generation_pareto_fronts = nsga4.evolve()
 
     print("最佳前沿解（每個請求分配到的伺服器編號向量）：")
     print(pareto_front)
@@ -353,116 +371,42 @@ if __name__ == "__main__":
     print(occupancy_rate)
 
     print("\n各目標函數的值：")
-    print("延遲指標（最大負載率）：",
-          [objective_latency(sol, best_usage[i], nsga4.item_values, nsga4.server_capacities) for i, sol in
-           enumerate(pareto_front)])
-    print("吞吐量指標（負吞吐量）：",
-          [objective_throughput(sol, best_usage[i], nsga4.item_values, nsga4.server_capacities) for i, sol in
-           enumerate(pareto_front)])
+    # print("吞吐量指標（負吞吐量）：",
+    #       [objective_throughput(sol, best_usage[i], nsga4.item_values, nsga4.server_capacities) for i, sol in
+    #        enumerate(pareto_front)])
     print("資源均衡指標（負載率標準差）：",
           [objective_resource_utilization(sol, best_usage[i], nsga4.item_values, nsga4.server_capacities) for i, sol in
            enumerate(pareto_front)])
-    print("錯誤率指標：",
-          [objective_error_rate(sol, best_usage[i], nsga4.item_values, nsga4.server_capacities) for i, sol in
+    print("延遲指標（最大負載率）：",
+          [objective_latency(sol, best_usage[i], nsga4.item_values, nsga4.server_capacities) for i, sol in
            enumerate(pareto_front)])
+    # print("錯誤率指標：",
+    #       [objective_error_rate(sol, best_usage[i], nsga4.item_values, nsga4.server_capacities) for i, sol in
+    #        enumerate(pareto_front)])
     print("成本指標（負載率總和）：",
           [objective_cost(sol, best_usage[i], nsga4.item_values, nsga4.server_capacities) for i, sol in
            enumerate(pareto_front)])
-    print("可用性指標（負最小剩餘比）：",
-          [objective_availability(sol, best_usage[i], nsga4.item_values, nsga4.server_capacities) for i, sol in
-           enumerate(pareto_front)])
-    print("負載均衡指標（最大與最小負載率差）：",
-          [objective_load_balancing(sol, best_usage[i], nsga4.item_values, nsga4.server_capacities) for i, sol in
-           enumerate(pareto_front)])
+    # print("可用性指標（負最小剩餘比）：",
+    #       [objective_availability(sol, best_usage[i], nsga4.item_values, nsga4.server_capacities) for i, sol in
+    #        enumerate(pareto_front)])
+    # print("負載均衡指標（最大與最小負載率差）：",
+    #       [objective_load_balancing(sol, best_usage[i], nsga4.item_values, nsga4.server_capacities) for i, sol in
+    #        enumerate(pareto_front)])
 
-
-    # 假設 best_solution 和 best_usage 已經從 NSGA-III 演化過程中獲得，
-    # 並且 nsga3 以及各目標函數（objective_latency、objective_throughput、...）均已定義
-
-    # 例如：
-    # best_solution = [sol1, sol2, sol3, ...]  # 每個 sol 為一個分配向量
-    # best_usage = [nsga3.compute_objective_usage(sol) for sol in best_solution]
-
-    # 收集每個解的各目標值到列表中
-    objectives_data = []
-    for idx, solution in enumerate(pareto_front):
-        # 對應解的使用值
-        usage = best_usage[idx]
-        # 計算各目標的值
-        latency_val = objective_latency(solution, usage, nsga4.item_values, nsga4.server_capacities)
-        throughput_val = objective_throughput(solution, usage, nsga4.item_values, nsga4.server_capacities)
-        resource_utilization_val = objective_resource_utilization(solution, usage, nsga4.item_values,
-                                                                  nsga4.server_capacities)
-        error_rate_val = objective_error_rate(solution, usage, nsga4.item_values, nsga4.server_capacities)
-        cost_val = objective_cost(solution, usage, nsga4.item_values, nsga4.server_capacities)
-        availability_val = objective_availability(solution, usage, nsga4.item_values, nsga4.server_capacities)
-        load_balancing_val = objective_load_balancing(solution, usage, nsga4.item_values, nsga4.server_capacities)
-
-        # 將各目標結果存入字典中（解的編號作為分類標識）
-        objectives_data.append({
-            'Solution': f"Sol_{idx}",
-            'Latency': latency_val,
-            'Throughput': throughput_val,
-            'ResourceUtilization': resource_utilization_val,
-            'ErrorRate': error_rate_val,
-            'Cost': cost_val,
-            'Availability': availability_val,
-            'LoadBalancing': load_balancing_val
+    generation_objectives_data = []
+    for each_sol in range(len(generation_pareto_fronts)):
+        obj_data = []
+        for sol in generation_pareto_fronts[each_sol]:
+            obj_vals = nsga4.fitness(sol)
+            obj_data.append({
+                'LoadBalance': obj_vals[0],
+                'Average Delay': obj_vals[1],
+                'Cost': obj_vals[2],
+            })
+        generation_objectives_data.append({
+            "Generation": each_sol,
+            "sol": obj_data
         })
-
-    # 將數據轉換成 DataFrame
-    df = pd.DataFrame(objectives_data)
-    print("各目標函數的彙總數據：")
-    print(df)
-
-    # --- 平行座標圖 ---
-    plt.figure(figsize=(12, 6))
-    # 以 'Solution' 作為類別標籤，每條線代表一個解
-    parallel_coordinates(df, 'Solution', colormap=plt.get_cmap("Set2"))
-    plt.title("Parallel Coordinates of Pareto Front Solutions (NSGA4)")
-    plt.ylabel("Objective Function Values")
-    plt.tight_layout()
-    plt.show()
-
-
-    def scatter_matrix_with_mean(df, figsize=(12, 12)):
-        """
-        自定義散點矩陣：
-          - 非對角子圖：展示兩兩變數間的散點圖
-          - 對角子圖：顯示該列數據的均值
-        """
-        num_vars = df.shape[1]
-        fig, axes = plt.subplots(num_vars, num_vars, figsize=figsize)
-
-        # 遍歷每一個子圖
-        for i, col_i in enumerate(df.columns):
-            for j, col_j in enumerate(df.columns):
-                ax = axes[i, j]
-                if i == j:
-                    # 對角位置：顯示均值文本
-                    mean_val = df[col_i].mean()
-                    ax.text(0.5, 0.5, f"Mean: {mean_val:.2f}",
-                            horizontalalignment='center', verticalalignment='center', fontsize=12)
-                    # 去除刻度
-                    ax.set_xticks([])
-                    ax.set_yticks([])
-                    ax.set_frame_on(False)
-                else:
-                    # 非對角位置：繪製散點圖
-                    ax.scatter(df[col_j], df[col_i], alpha=0.8, color='blue')
-                    # 如非最外側圖形，隱藏刻度標籤
-                    if i < num_vars - 1:
-                        ax.set_xticks([])
-                    if j > 0:
-                        ax.set_yticks([])
-                    # 為最外層添加坐標標籤
-                    if i == num_vars - 1:
-                        ax.set_xlabel(col_j)
-                    if j == 0:
-                        ax.set_ylabel(col_i)
-        plt.tight_layout()
-        plt.show()
-
-    # --- Scatter Matrix ---
-    df_plot = df.drop('Solution', axis=1)
-    scatter_matrix_with_mean(df_plot, figsize=(12, 12))
+    generation_df = pd.DataFrame(generation_objectives_data)
+    print(generation_df)
+    generation_df.to_csv(f'NSGA4_generation_solutions.csv', index=False)
