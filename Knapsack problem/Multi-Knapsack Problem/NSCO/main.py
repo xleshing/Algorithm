@@ -1,4 +1,5 @@
 from kubernetes import client, config
+from kubernetes.client import CustomObjectsApi
 import json
 import numpy as np
 import argparse
@@ -93,19 +94,40 @@ def convert_memory_to_mib(mem_str):
         # 取得目前 Pod 使用率
 
 
-def get_pod_usage(namespaces):
-    """ 取得所有 **非 Master 節點** 上的 Pod 的 CPU 和記憶體使用率 """
+def get_pod_usage(namespaces, mode="requests"):
+    """根據 mode 決定如何抓取 pod 資源使用狀態：
+       - 'requests'：用 requests 來估算
+       - 'metrics'：用 metrics.k8s.io API
+       - 'hybrid'：requests 為 0 時 fallback 到 metrics"""
+
     total_cpu = 0
     total_mem = 0
 
-    # 取得 Master 節點列表
     master_nodes = set(get_node_capacity()[0])
-
-    # 獲取所有 Pod
     all_pods = []
     for ns in namespaces:
         pods = v1.list_namespaced_pod(namespace=ns).items
-        all_pods.extend(pods)  # 將所有 Pod 加入列表
+        all_pods.extend(pods)
+
+    # 如果是 hybrid 或 metrics 模式，先拉 Metrics 資料
+    metrics_data = {}
+    if mode in ["metrics", "hybrid"]:
+        try:
+            metrics_api = CustomObjectsApi()
+            for ns in namespaces:
+                metrics = metrics_api.list_namespaced_custom_object(
+                    group="metrics.k8s.io",
+                    version="v1beta1",
+                    namespace=ns,
+                    plural="pods"
+                )
+                for item in metrics["items"]:
+                    pod_name = item["metadata"]["name"]
+                    metrics_data[(ns, pod_name)] = item
+        except Exception as e:
+            logger.warning(f"無法取得 Metrics 資料：{e}")
+            if mode == "metrics":
+                return 0, 0  # Metrics 模式下沒資料就直接返回 0
 
     for pod in all_pods:
         try:
@@ -113,25 +135,118 @@ def get_pod_usage(namespaces):
             if node_name in master_nodes:
                 continue
 
+            cpu_sum = 0
+            mem_sum = 0
+
             for container in pod.spec.containers:
                 requests = container.resources.requests or {}
-
                 cpu = requests.get("cpu", "0m")
                 mem = requests.get("memory", "0Mi")
 
                 if cpu.endswith("m"):
-                    cpu = int(cpu[:-1]) / 1000
+                    cpu_val = int(cpu[:-1]) / 1000
                 else:
-                    cpu = int(cpu)
+                    try:
+                        cpu_val = int(cpu)
+                    except:
+                        cpu_val = 0
 
-                mem = convert_memory_to_mib(mem)
+                mem_val = convert_memory_to_mib(mem)
 
-                total_cpu += cpu
-                total_mem += mem
+                cpu_sum += cpu_val
+                mem_sum += mem_val
+
+            if cpu_sum == 0 and mode == "hybrid":
+                # fallback to metrics data
+                metrics_item = metrics_data.get((pod.metadata.namespace, pod.metadata.name))
+                if metrics_item:
+                    for container in metrics_item["containers"]:
+                        usage_cpu = container["usage"]["cpu"]
+                        usage_mem = container["usage"]["memory"]
+
+                        if usage_cpu.endswith("n"):
+                            cpu_val = int(usage_cpu[:-1]) / 1e9
+                        elif usage_cpu.endswith("u"):
+                            cpu_val = int(usage_cpu[:-1]) / 1e6
+                        elif usage_cpu.endswith("m"):
+                            cpu_val = int(usage_cpu[:-1]) / 1000
+                        else:
+                            cpu_val = int(usage_cpu)
+
+                        mem_val = convert_memory_to_mib(usage_mem)
+
+                        cpu_sum += cpu_val
+                        mem_sum += mem_val
+
+            elif mode == "metrics":
+                metrics_item = metrics_data.get((pod.metadata.namespace, pod.metadata.name))
+                if metrics_item:
+                    cpu_sum = 0
+                    mem_sum = 0
+                    for container in metrics_item["containers"]:
+                        usage_cpu = container["usage"]["cpu"]
+                        usage_mem = container["usage"]["memory"]
+
+                        if usage_cpu.endswith("n"):
+                            cpu_val = int(usage_cpu[:-1]) / 1e9
+                        elif usage_cpu.endswith("u"):
+                            cpu_val = int(usage_cpu[:-1]) / 1e6
+                        elif usage_cpu.endswith("m"):
+                            cpu_val = int(usage_cpu[:-1]) / 1000
+                        else:
+                            cpu_val = int(usage_cpu)
+
+                        mem_val = convert_memory_to_mib(usage_mem)
+
+                        cpu_sum += cpu_val
+                        mem_sum += mem_val
+
+            total_cpu += cpu_sum
+            total_mem += mem_sum
+
         except KeyError:
             continue
 
     return total_cpu, total_mem
+# def get_pod_usage(namespaces):
+#     """ 取得所有 **非 Master 節點** 上的 Pod 的 CPU 和記憶體使用率 """
+#     total_cpu = 0
+#     total_mem = 0
+#
+#     # 取得 Master 節點列表
+#     master_nodes = set(get_node_capacity()[0])
+#
+#     # 獲取所有 Pod
+#     all_pods = []
+#     for ns in namespaces:
+#         pods = v1.list_namespaced_pod(namespace=ns).items
+#         all_pods.extend(pods)  # 將所有 Pod 加入列表
+#
+#     for pod in all_pods:
+#         try:
+#             node_name = pod.spec.node_name
+#             if node_name in master_nodes:
+#                 continue
+#
+#             for container in pod.spec.containers:
+#                 requests = container.resources.requests or {}
+#
+#                 cpu = requests.get("cpu", "0m")
+#                 mem = requests.get("memory", "0Mi")
+#
+#                 if cpu.endswith("m"):
+#                     cpu = int(cpu[:-1]) / 1000
+#                 else:
+#                     cpu = int(cpu)
+#
+#                 mem = convert_memory_to_mib(mem)
+#
+#                 total_cpu += cpu
+#                 total_mem += mem
+#         except KeyError:
+#             continue
+#
+#     return total_cpu, total_mem
 
 
 # 取得目前節點資源上限
@@ -172,10 +287,10 @@ def get_node_capacity():
 
 
 # 根據演算法輸出調整節點狀態
-def adjust_nodes(capacity, tolerance_value, max_delay, namespaces_str):
+def adjust_nodes(capacity, tolerance_value, max_delay, namespaces_str, mode):
     namespaces = namespaces_str.split(" ")
     turn_node_on = 0
-    pod_cpu, pod_mem = get_pod_usage(namespaces)
+    pod_cpu, pod_mem = get_pod_usage(namespaces, mode)
     node_list, values, node_status = get_node_capacity()
 
     weight = [pod_cpu, pod_mem]
@@ -247,7 +362,9 @@ if __name__ == "__main__":
     parser.add_argument("--tolerance_value", type=float, default=10.0, help="Tolerance Value（％％）")
     parser.add_argument("--max_calculate_times", type=int, default=100, help="Max Calculate Times")
     parser.add_argument("--sleep_time", type=int, default=5, help="Sleep Time（s）")
-    parser.add_argument("--log_level", type=str, default="INFO",
+    parser.add_argument("--mode", type=str, choices=["requests", "metrics", "hybrid"], default="hybrid",
+                        help="Resource collection mode: requests, metrics, or hybrid")
+    parser.add_argument("--log_level", type=str, choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"], default="INFO",
                         help="Log Level（DEBUG, INFO, WARNING, ERROR, CRITICAL）")
 
     args = parser.parse_args()
@@ -271,5 +388,5 @@ if __name__ == "__main__":
         f"Target Pod Namespaces：{args.namespaces}, Target Resource Usage：{args.capacity}%, Tolerance Value：{args.tolerance_value}%, Max Calculate Times：{args.max_calculate_times}, Sleep Time：{args.sleep_time}s, Log Level：{args.log_level}")
     # print(f"目標資源使用率：{args.capacity}%, 上下限空間：{args.active_range}%, 最大計算次數：{args.max_calculate_times}, 睡眠時間{args.sleep_time}s, 日誌級別：{args.log_level}")
     while True:
-        adjust_nodes(args.capacity, args.tolerance_value, args.max_calculate_times, args.namespaces)
+        adjust_nodes(args.capacity, args.tolerance_value, args.max_calculate_times, args.namespaces, args.mode)
         time.sleep(args.sleep_time)
