@@ -107,7 +107,7 @@ def get_node_capacity():
 
 
 # 根據演算法輸出調整節點狀態
-def adjust_nodes(pre_pod_cpu, pre_pod_mem, capacity, active_range, max_delay, namespaces_str, objs_func):
+def adjust_nodes(pre_pod_cpu, pre_pod_mem, capacity, tolerance_value, max_delay, namespaces_str):
     namespaces = namespaces_str.split(" ")
     turn_node_on = 0
     pod_cpu, pod_mem = pre_pod_cpu, pre_pod_mem
@@ -117,11 +117,12 @@ def adjust_nodes(pre_pod_cpu, pre_pod_mem, capacity, active_range, max_delay, na
 
     logger.debug(
         f"所有 pod 總消耗（核）：{weight[0]}，所有可用 node：{node_list}，各 node CPU 上限（核）：{values}，目前總負載（％）：{weight[0] / np.dot(node_status, values) * 100:.2f}")
-    if weight[0] / np.dot(node_status, values) * 100 + active_range < capacity or weight[0] / np.dot(node_status,
-                                                                                                     values) * 100 - active_range > capacity:
+    if weight[0] / np.dot(node_status, values) * 100 + tolerance_value < capacity or weight[0] / np.dot(node_status,
+                                                                                                        values) * 100 - tolerance_value > capacity:
         if weight[0] / np.dot(np.ones_like(node_status), values) * 100 > capacity:
             logger.warning(
-                f"Not enough resources, will activate all node（Target Value：{capacity} %，The Cluster Load after activate all node：{weight[0] / np.dot(np.ones_like(node_status), values) * 100} %）")
+                f"Not enough resources, will activate all node（Target Value：{capacity} %，The Cluster Load after "
+                f"activate all node：{weight[0] / np.dot(np.ones_like(node_status), values) * 100} %）")
             for i, node in enumerate(node_list):
                 if node_status[i] == 0:
                     uncordon_node(node)  # 使用 `uncordon` API
@@ -130,7 +131,7 @@ def adjust_nodes(pre_pod_cpu, pre_pod_mem, capacity, active_range, max_delay, na
             logger.info("----")
         else:
             algorithm = NSCO_Algorithm(
-                turn_node_on=0,
+                turn_node_on=turn_node_on,
                 d=len(values),
                 value=values,
                 weight=weight[0],
