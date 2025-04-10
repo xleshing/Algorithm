@@ -148,7 +148,9 @@ def adjust_nodes(pre_pod_cpu, pre_pod_mem, capacity, tolerance_value, max_delay,
 
             best_ind = sorted(range(len(best_pf)), key=lambda k: [change(sol, np.array(node_status)) for sol in best_pf][k])
 
-            best_sol = best_pf[best_ind[0]]
+            best_ind_filter = [sol_ind for sol_ind in best_ind if capacity + tolerance_value > 1 / load(best_pf[sol_ind], weight[0], values) - 1e-6 > capacity - tolerance_value]
+
+            best_sol = best_pf[best_ind_filter[0] if len(best_ind_filter) != 0 else node_status]
 
             if best_sol.tolist() == node_status:
                 logger.debug("目前已是最佳或找不到最佳，保持原狀態")

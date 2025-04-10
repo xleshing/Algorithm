@@ -294,15 +294,17 @@ if __name__ == "__main__":
     # 外部傳入的目標函數範例，可根據需求調整邏輯
     def load(x, w, v):
         ratio = w / np.dot(x, v) * 100
-        return 1 / ratio + 1e-6
+        return 1 / (ratio + 1e-6)
 
     def change(x, original_status):
         return np.sum(np.abs(x - original_status))
 
     # 參數設定
-    v = [1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000]  # 每項物品資源量
-    w = np.sum([500, 0, 0, 0, 0, 0, 500, 0, 0, 0])  # 總資源使用量
-    c = 55  # SLA 容量限制
+    # v = [1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000]  # 每項物品資源量
+    # w = np.sum([500, 0, 0, 0, 0, 0, 500, 0, 0, 0])  # 總資源使用量
+    v = np.random.randint(0, 1000, [10,])  # 每項物品資源量
+    w = np.sum(np.random.randint(0, 50, [100,]))  # 總資源使用量
+    c = 80  # SLA 容量限制
 
     nsco = NSCO_Algorithm(
         turn_node_on=0,
@@ -310,12 +312,12 @@ if __name__ == "__main__":
         value=v,
         weight=w,
         capacity=c,
-        coyotes_per_group=5,
-        n_groups=5,
+        coyotes_per_group=10,
+        n_groups=10,
         p_leave=0.1,
         max_iter=100,
         max_delay=100,
-        original_status=[1, 0, 0, 0, 0, 0, 1, 0, 0, 0],
+        original_status=np.random.randint(1, 2, [10,]),
         objs_func=[load, change]  # 使用外部目標函數
     )
 
@@ -323,6 +325,9 @@ if __name__ == "__main__":
 
     print("Final Pareto Front Solutions (NSCO):")
     print(global_pf_solutions)
+    best_pf = [(1 / sol[0] - 1e-6, sol[1]) for sol in [nsco.multiobj(sol).tolist() for sol in global_pf_solutions]]
+    best_ind = sorted(range(len(best_pf)), key=lambda k: [sol[1] for sol in best_pf][k])
+    print([best_pf[ind] for ind in best_ind])
 
     # 繪製最終 Pareto 解在目標空間中的分布
     pf_obj_values = np.array([nsco.multiobj(sol) for sol in global_pf_solutions])
