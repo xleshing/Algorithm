@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 
 
 # --------------------------
-# 非支配排序輔助函式 (均視為 minimization 問題)
+# 非支配排序輔助函式 (均視為 minimization 目標)
 # --------------------------
 def dominates(u, v):
     """
@@ -54,13 +54,13 @@ def fast_non_dominated_sort(pop_objs):
 
 
 # --------------------------
-# NSCO for Knapsack Problem (改為多目標：效益與與原狀態改動數)
+# NSCO for Knapsack Problem (改為多目標：效益與原狀態改動數)
 # --------------------------
 class NSCO_Algorithm:
     def __init__(self, turn_node_on, d, value, weight, capacity, coyotes_per_group, n_groups, p_leave, max_iter,
-                 max_delay, original_status):
+                 max_delay, original_status, objs_func=None):
         """
-        參數定義與原 COA 版本相同：
+        參數定義：
           turn_node_on: 初始節點開啟狀態（若有用）
           d: 問題維度（物品數量）
           value: 每項物品的資源提供值 (1D 陣列)
@@ -72,6 +72,7 @@ class NSCO_Algorithm:
           max_iter: 最大迭代次數
           max_delay: 約束重生成嘗試次數
           original_status: 原始背包解 (0/1 列表)
+          external_obj_func: 外部傳入的目標函數 (接收 x 輸入並回傳效益值)
         """
         self.turn_node_on = turn_node_on
         self.d = d
@@ -84,30 +85,34 @@ class NSCO_Algorithm:
         self.max_iter = max_iter
         self.max_delay = max_delay
         self.original_status = np.array(original_status)
+        # 採用外部目標函數或預設函數
+        self.objs_func = objs_func
 
-    def func(self, x):
+    def is_feasible(self, x):
         """
-        評估單一解 x（0/1 背包解）的效益：
-          若 x 未滿足容量限制或未選物品，則回傳 -∞；
-          否則回傳 (weight / (np.dot(x, value)) * 100)
+        檢查解 x 是否滿足容量限制：
+          若未選物品或目標比率超過容量上限，視為不可行
         """
         if np.dot(x, self.value) == 0:
-            return -np.inf
+            return False
         ratio = self.weight / np.dot(x, self.value) * 100
-        if ratio > self.capacity:
-            return -np.inf
-        else:
-            return ratio
+        return (ratio <= self.capacity)
+
+    def repair(self, x):
+        """
+        當解超過容量上限時，重新生成一個滿足容量限制的解。
+        會嘗試最多 max_delay 次，直到找到可行解為止。
+        """
+        attempts = 0
+        while not self.is_feasible(x) and attempts < self.max_delay:
+            x = np.random.randint(2, size=self.d)
+            attempts += 1
+        return x
 
     def multiobj(self, x):
-        """
-        多目標設定：
-          目標1 (f1)：minimize( -func(x) )，即希望 func(x) 越高（效益越佳）
-          目標2 (f2)：minimize( 改變的節點數 )，以 Hamming 距離計算解 x 與 original_status 之差異
-        """
-        f1 = -self.func(x)
-        f2 = np.sum(np.abs(x - self.original_status))
-        return np.array([f1, f2])
+        f1 = self.objs_func[0]
+        f2 = self.objs_func[1]
+        return np.array([f1(x), f2(x, self.original_status)])
 
     def nsco_initialize_population(self):
         """
@@ -119,17 +124,10 @@ class NSCO_Algorithm:
         """
         total_coyotes = self.n_groups * self.coyotes_per_group
         population = np.random.randint(2, size=(total_coyotes, self.d))
-        total_value = np.array([np.dot(x, self.value) for x in population])
-        for n in range(self.max_delay):
-            invalid = []
-            for idx, x in enumerate(population):
-                if np.dot(x, self.value) == 0 or self.func(x) == -np.inf:
-                    invalid.append(idx)
-            if len(invalid) > 0:
-                population[invalid, :] = np.random.randint(2, size=(len(invalid), self.d))
-                total_value[invalid] = np.array([np.dot(x, self.value) for x in population[invalid, :]])
-            else:
-                break
+        # 利用 repair 函數修正不滿足容量限制的解
+        for idx in range(total_coyotes):
+            if not self.is_feasible(population[idx, :]):
+                population[idx, :] = self.repair(population[idx, :])
         indices = np.random.permutation(total_coyotes)
         groups = indices.reshape(self.n_groups, self.coyotes_per_group)
         population_age = np.zeros(total_coyotes, dtype=int)
@@ -157,12 +155,15 @@ class NSCO_Algorithm:
         rand_mask = np.random.rand(self.d) < 0.5
         candidate = np.where(rand_mask, np.abs(delta1), np.abs(delta2))
         new_sol = (candidate > 0).astype(int)
+        # 修正新產生的解
+        new_sol = self.repair(new_sol)
         return new_sol
 
     def nsco_crossover(self, sub_pop):
         """
         父代交叉產生 pup：
-         隨機選取兩個父代，根據隨機遮罩決定每一維度來源，未選到的部分以隨機 0/1 產生突變
+         隨機選取兩個父代，根據隨機遮罩決定每一維度來源，
+         未選到的部分以隨機 0/1 產生突變
         """
         parents_idx = np.random.choice(self.coyotes_per_group, 2, replace=False)
         mutation_prob = 1 / self.d
@@ -181,6 +182,8 @@ class NSCO_Algorithm:
         pup = (p1_mask * sub_pop[parents_idx[0], :] +
                p2_mask * sub_pop[parents_idx[1], :] +
                mut_mask * np.random.randint(2, size=self.d))
+        # 修正交叉產生的解
+        pup = self.repair(pup)
         return pup
 
     def nsco_update_group(self, population, group_indices, population_age):
@@ -190,8 +193,8 @@ class NSCO_Algorithm:
              隨機選取其中一個作為領導者 (alpha) 並計算群文化傾向；
          (2) 對每隻個體利用 nsco_update_coyote 嘗試更新，
              若新解在多目標上支配原解則予以採納；
-         (3) 利用 nsco_crossover 產生 pup，若其在多目標上支配群中部分解，
-             則以年齡輔助替換其中年齡最高者。
+         (3) 利用 nsco_crossover 產生 pup，
+             若其在多目標上支配群中部分解，則以年齡輔助替換其中年齡最高者。
         """
         sub_pop = population[group_indices, :].copy()
         sub_objs = np.array([self.multiobj(x) for x in sub_pop])
@@ -279,7 +282,7 @@ class NSCO_Algorithm:
             print(f"Iteration {iteration + 1}: Pareto Front size = {len(global_pf)}")
 
         # 最終檢查：若全局前沿中無可行解，則以原始狀態作為解
-        feasible_front = [sol for sol in global_pf_solutions if self.func(sol) != -np.inf]
+        feasible_front = [sol for sol in global_pf_solutions if self.is_feasible(sol)]
         if len(feasible_front) == 0:
             global_pf_solutions = np.array([self.original_status])
         return global_pf_solutions, archive
@@ -289,7 +292,15 @@ class NSCO_Algorithm:
 # 測試與示意 (main)
 # --------------------------
 if __name__ == "__main__":
-    # 參數設定（參考原 COA 版本）
+    # 外部傳入的目標函數範例，可根據需求調整邏輯
+    def load(x):
+        ratio = w / np.dot(x, v) * 100
+        return 1 / ratio + 1e-6
+
+    def change(x, original_status):
+        return np.sum(np.abs(x - original_status))
+
+    # 參數設定
     v = [1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000]  # 每項物品資源量
     w = np.sum([500, 0, 0, 0, 0, 0, 500, 0, 0, 0])  # 總資源使用量
     c = 55  # SLA 容量限制
@@ -305,7 +316,8 @@ if __name__ == "__main__":
         p_leave=0.1,
         max_iter=100,
         max_delay=100,
-        original_status=[1, 0, 0, 0, 0, 0, 1, 0, 0, 0]
+        original_status=[1, 0, 0, 0, 0, 0, 1, 0, 0, 0],
+        objs_func=[load, change]  # 使用外部目標函數
     )
 
     global_pf_solutions, archive = nsco.NSCO_main()
@@ -313,11 +325,12 @@ if __name__ == "__main__":
     print("Final Pareto Front Solutions (NSCO):")
     print(global_pf_solutions)
 
-    # 畫出收斂歷程中，每代第一前沿的解個數 (供參考)
-    front_sizes = [len(front) for front in archive]
-    plt.plot(front_sizes, marker='o')
-    plt.xlabel("Iteration")
-    plt.ylabel("Pareto Front Size")
-    plt.title("NSCO for Knapsack Problem: Pareto Front Size Evolution")
+    # 繪製最終 Pareto 解在目標空間中的分布
+    pf_obj_values = np.array([nsco.multiobj(sol) for sol in global_pf_solutions])
+    plt.figure()
+    plt.scatter(pf_obj_values[:, 0], pf_obj_values[:, 1], c='red', marker='o', edgecolors='k')
+    plt.xlabel('Objective 1')
+    plt.ylabel('Objective 2')
+    plt.title('Final Pareto Front')
     plt.grid(True)
     plt.show()
