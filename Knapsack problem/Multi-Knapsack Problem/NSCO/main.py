@@ -5,6 +5,7 @@ import argparse
 import logging
 from logging.handlers import RotatingFileHandler
 from nsco import NSCO_Algorithm
+import time
 
 # 初始化 Kubernetes API
 # 在 Kubernetes 內部執行時改用 `config.load_incluster_config()`
@@ -18,7 +19,7 @@ v1 = client.CoreV1Api()
 
 def load(x, w, v):
     ratio = w / np.dot(x, v) * 100
-    return 1 / ratio + 1e-6
+    return 1 / (ratio + 1e-6)
 
 
 def change(x, original_status):
@@ -69,6 +70,70 @@ def uncordon_node(node):
     logger.info(f"{node}（Uncordon）")
 
 
+def convert_memory_to_mib(mem_str):
+    """將記憶體字串 (如 '256Mi', '1Gi', '512Ki', '100M') 轉換為 MiB"""
+    mem_str = mem_str.strip()
+    if mem_str.endswith("Mi"):
+        return int(mem_str[:-2])
+    elif mem_str.endswith("Gi"):
+        return int(mem_str[:-2]) * 1024
+    elif mem_str.endswith("Ki"):
+        return int(mem_str[:-2]) // 1024
+    elif mem_str.endswith("M"):
+        return int(mem_str[:-1])
+    elif mem_str.endswith("G"):
+        return int(mem_str[:-1]) * 1024
+    else:
+        try:
+            return int(mem_str)
+        except ValueError:
+            logger.error(f"Unable to parse memory value: {mem_str}")
+            return 0
+
+        # 取得目前 Pod 使用率
+
+
+def get_pod_usage(namespaces):
+    """ 取得所有 **非 Master 節點** 上的 Pod 的 CPU 和記憶體使用率 """
+    total_cpu = 0
+    total_mem = 0
+
+    # 取得 Master 節點列表
+    master_nodes = set(get_node_capacity()[0])
+
+    # 獲取所有 Pod
+    all_pods = []
+    for ns in namespaces:
+        pods = v1.list_namespaced_pod(namespace=ns).items
+        all_pods.extend(pods)  # 將所有 Pod 加入列表
+
+    for pod in all_pods:
+        try:
+            node_name = pod.spec.node_name
+            if node_name in master_nodes:
+                continue
+
+            for container in pod.spec.containers:
+                requests = container.resources.requests or {}
+
+                cpu = requests.get("cpu", "0m")
+                mem = requests.get("memory", "0Mi")
+
+                if cpu.endswith("m"):
+                    cpu = int(cpu[:-1]) / 1000
+                else:
+                    cpu = int(cpu)
+
+                mem = convert_memory_to_mib(mem)
+
+                total_cpu += cpu
+                total_mem += mem
+        except KeyError:
+            continue
+
+    return total_cpu, total_mem
+
+
 # 取得目前節點資源上限
 def get_node_capacity():
     """ 取得所有 **非 Master** 節點的 CPU/記憶體上限，並判斷是否在休眠狀態（cordon 狀態）"""
@@ -107,10 +172,10 @@ def get_node_capacity():
 
 
 # 根據演算法輸出調整節點狀態
-def adjust_nodes(pre_pod_cpu, pre_pod_mem, capacity, tolerance_value, max_delay, namespaces_str):
+def adjust_nodes(capacity, tolerance_value, max_delay, namespaces_str):
     namespaces = namespaces_str.split(" ")
     turn_node_on = 0
-    pod_cpu, pod_mem = pre_pod_cpu, pre_pod_mem
+    pod_cpu, pod_mem = get_pod_usage(namespaces)
     node_list, values, node_status = get_node_capacity()
 
     weight = [pod_cpu, pod_mem]
@@ -121,8 +186,7 @@ def adjust_nodes(pre_pod_cpu, pre_pod_mem, capacity, tolerance_value, max_delay,
                                                                                                         values) * 100 - tolerance_value > capacity:
         if weight[0] / np.dot(np.ones_like(node_status), values) * 100 > capacity:
             logger.warning(
-                f"Not enough resources, will activate all node（Target Value：{capacity} %，The Cluster Load after "
-                f"activate all node：{weight[0] / np.dot(np.ones_like(node_status), values) * 100} %）")
+                f"Not enough resources, will activate all node（Target Value：{capacity} %，The Cluster Load after activate all node：{weight[0] / np.dot(np.ones_like(node_status), values) * 100} %）")
             for i, node in enumerate(node_list):
                 if node_status[i] == 0:
                     uncordon_node(node)  # 使用 `uncordon` API
@@ -146,9 +210,12 @@ def adjust_nodes(pre_pod_cpu, pre_pod_mem, capacity, tolerance_value, max_delay,
             )
             best_pf, _ = algorithm.NSCO_main()
 
-            best_ind = sorted(range(len(best_pf)), key=lambda k: [change(sol, np.array(node_status)) for sol in best_pf][k])
+            best_ind = sorted(range(len(best_pf)),
+                              key=lambda k: [change(sol, np.array(node_status)) for sol in best_pf][k])
 
-            best_ind_filter = [sol_ind for sol_ind in best_ind if capacity + tolerance_value > 1 / load(best_pf[sol_ind], weight[0], values) - 1e-6 > capacity - tolerance_value]
+            best_ind_filter = [sol_ind for sol_ind in best_ind if
+                               capacity + tolerance_value > 1 / load(best_pf[sol_ind], weight[0],
+                                                                     values) - 1e-6 > capacity - tolerance_value]
 
             best_sol = best_pf[best_ind_filter[0] if len(best_ind_filter) != 0 else node_status]
 
@@ -173,11 +240,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Kubernetes Node Scaler")
     parser.add_argument("--namespaces", type=str, default="default",
                         help="Target Pod Namespaces (namespace_1 namespace_2 ...)")
-    parser.add_argument("--pre_pod_cpu", type=float, help="Predict Pod CPU Usage（％％）")
-    parser.add_argument("--pre_pod_mem", type=float, help="Predict Pod Memery Usage（％％）")
     parser.add_argument("--capacity", type=float, default=80.0, help="Target Resource Usage（％％）")
     parser.add_argument("--tolerance_value", type=float, default=10.0, help="Tolerance Value（％％）")
     parser.add_argument("--max_calculate_times", type=int, default=100, help="Max Calculate Times")
+    parser.add_argument("--sleep_time", type=int, default=5, help="Sleep Time（s）")
     parser.add_argument("--log_level", type=str, default="INFO",
                         help="Log Level（DEBUG, INFO, WARNING, ERROR, CRITICAL）")
 
@@ -199,7 +265,8 @@ if __name__ == "__main__":
     logger.addHandler(console_handler)  # ✅ 記錄到命令行（stdout）
 
     logger.info(
-        f"Target Pod Namespaces：{args.namespaces}, Target Resource Usage：{args.capacity}%, Tolerance Value：{args.tolerance_value}%, Max Calculate Times：{args.max_calculate_times}, Log Level：{args.log_level}")
-
-    adjust_nodes(args.pre_pod_cpu, args.pre_pod_mem, args.capacity, args.tolerance_value, args.max_calculate_times,
-                 args.namespaces)
+        f"Target Pod Namespaces：{args.namespaces}, Target Resource Usage：{args.capacity}%, Tolerance Value：{args.tolerance_value}%, Max Calculate Times：{args.max_calculate_times}, Sleep Time：{args.sleep_time}s, Log Level：{args.log_level}")
+    # print(f"目標資源使用率：{args.capacity}%, 上下限空間：{args.active_range}%, 最大計算次數：{args.max_calculate_times}, 睡眠時間{args.sleep_time}s, 日誌級別：{args.log_level}")
+    while True:
+        adjust_nodes(args.capacity, args.tolerance_value, args.max_calculate_times, args.namespaces)
+        time.sleep(args.sleep_time)
