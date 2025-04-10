@@ -278,7 +278,7 @@ class NSCO_Algorithm:
             global_pf = fronts[0]
             global_pf_solutions = population[global_pf, :].copy()
             archive.append(global_pf_solutions)
-            print(f"Iteration {iteration + 1}: Pareto Front size = {len(global_pf)}")
+            # print(f"Iteration {iteration + 1}: Pareto Front size = {len(global_pf)}")
 
         # 最終檢查：若全局前沿中無可行解，則以原始狀態作為解
         feasible_front = [sol for sol in global_pf_solutions if self.is_feasible(sol)]
@@ -312,8 +312,8 @@ if __name__ == "__main__":
         value=v,
         weight=w,
         capacity=c,
-        coyotes_per_group=10,
-        n_groups=10,
+        coyotes_per_group=5,
+        n_groups=5,
         p_leave=0.1,
         max_iter=100,
         max_delay=100,
