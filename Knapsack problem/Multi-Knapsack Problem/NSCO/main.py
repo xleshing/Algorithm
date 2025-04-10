@@ -3,57 +3,6 @@ import matplotlib.pyplot as plt
 
 
 # --------------------------
-# 非支配排序輔助函式 (均視為 minimization 目標)
-# --------------------------
-def dominates(u, v):
-    """
-    判斷向量 u 是否支配向量 v（均為 minimization 目標）
-    u 支配 v 當且僅當 u 的所有目標值均 ≤ v，且至少有一個目標值 < v
-    """
-    return np.all(u <= v) and np.any(u < v)
-
-
-def fast_non_dominated_sort(pop_objs):
-    """
-    快速非支配排序
-    輸入:
-      pop_objs: (N x M) 陣列，每列為一解的 M 個目標值
-    回傳:
-      fronts: 一串列表，每一列表包含該 front 中解的索引 (第一 front 為 Pareto 前沿)
-    """
-    N = pop_objs.shape[0]
-    domination_counts = np.zeros(N, dtype=int)
-    dominated = [[] for _ in range(N)]
-    fronts = []
-
-    front1 = []
-    for i in range(N):
-        for j in range(N):
-            if i == j:
-                continue
-            if dominates(pop_objs[i], pop_objs[j]):
-                dominated[i].append(j)
-            elif dominates(pop_objs[j], pop_objs[i]):
-                domination_counts[i] += 1
-        if domination_counts[i] == 0:
-            front1.append(i)
-    fronts.append(front1)
-
-    i = 0
-    while fronts[i]:
-        next_front = []
-        for j in fronts[i]:
-            for k in dominated[j]:
-                domination_counts[k] -= 1
-                if domination_counts[k] == 0:
-                    next_front.append(k)
-        i += 1
-        fronts.append(next_front)
-    fronts.pop()  # 移除最後空的 front
-    return fronts
-
-
-# --------------------------
 # NSCO for Knapsack Problem (改為多目標：效益與原狀態改動數)
 # --------------------------
 class NSCO_Algorithm:
@@ -88,6 +37,56 @@ class NSCO_Algorithm:
         # 採用外部目標函數或預設函數
         self.objs_func = objs_func
 
+    # --------------------------
+    # 非支配排序輔助函式 (均視為 minimization 目標)
+    # --------------------------
+
+    def dominates(self, u, v):
+        """
+        判斷向量 u 是否支配向量 v（均為 minimization 目標）
+        u 支配 v 當且僅當 u 的所有目標值均 ≤ v，且至少有一個目標值 < v
+        """
+        return np.all(u <= v) and np.any(u < v)
+
+    def fast_non_dominated_sort(self, pop_objs):
+        """
+        快速非支配排序
+        輸入:
+          pop_objs: (N x M) 陣列，每列為一解的 M 個目標值
+        回傳:
+          fronts: 一串列表，每一列表包含該 front 中解的索引 (第一 front 為 Pareto 前沿)
+        """
+        N = pop_objs.shape[0]
+        domination_counts = np.zeros(N, dtype=int)
+        dominated = [[] for _ in range(N)]
+        fronts = []
+
+        front1 = []
+        for i in range(N):
+            for j in range(N):
+                if i == j:
+                    continue
+                if self.dominates(pop_objs[i], pop_objs[j]):
+                    dominated[i].append(j)
+                elif self.dominates(pop_objs[j], pop_objs[i]):
+                    domination_counts[i] += 1
+            if domination_counts[i] == 0:
+                front1.append(i)
+        fronts.append(front1)
+
+        i = 0
+        while fronts[i]:
+            next_front = []
+            for j in fronts[i]:
+                for k in dominated[j]:
+                    domination_counts[k] -= 1
+                    if domination_counts[k] == 0:
+                        next_front.append(k)
+            i += 1
+            fronts.append(next_front)
+        fronts.pop()  # 移除最後空的 front
+        return fronts
+
     def is_feasible(self, x):
         """
         檢查解 x 是否滿足容量限制：
@@ -112,7 +111,7 @@ class NSCO_Algorithm:
     def multiobj(self, x):
         f1 = self.objs_func[0]
         f2 = self.objs_func[1]
-        return np.array([f1(x), f2(x, self.original_status)])
+        return np.array([f1(x, self.weight, self.value), f2(x, self.original_status)])
 
     def nsco_initialize_population(self):
         """
@@ -201,7 +200,7 @@ class NSCO_Algorithm:
         sub_age = population_age[group_indices].copy()
         n_pack = len(group_indices)
 
-        fronts = fast_non_dominated_sort(sub_objs)
+        fronts = self.fast_non_dominated_sort(sub_objs)
         if len(fronts[0]) > 0:
             alpha_idx = np.random.choice(fronts[0])
             alpha_coyote = sub_pop[alpha_idx, :].copy()
@@ -212,7 +211,7 @@ class NSCO_Algorithm:
         for i in range(n_pack):
             new_sol = self.nsco_update_coyote(i, sub_pop, alpha_coyote, cultural_tendency)
             new_obj = self.multiobj(new_sol)
-            if dominates(new_obj, sub_objs[i]):
+            if self.dominates(new_obj, sub_objs[i]):
                 sub_pop[i, :] = new_sol
                 sub_objs[i] = new_obj
                 sub_age[i] = 0
@@ -222,7 +221,7 @@ class NSCO_Algorithm:
             pup_obj = self.multiobj(pup)
             dominated_indices = []
             for i in range(n_pack):
-                if dominates(pup_obj, sub_objs[i]):
+                if self.dominates(pup_obj, sub_objs[i]):
                     dominated_indices.append(i)
             if dominated_indices:
                 ages_candidates = sub_age[dominated_indices]
@@ -262,7 +261,7 @@ class NSCO_Algorithm:
         """
         population, groups, population_age = self.nsco_initialize_population()
         pop_objs = np.array([self.multiobj(x) for x in population])
-        fronts = fast_non_dominated_sort(pop_objs)
+        fronts = self.fast_non_dominated_sort(pop_objs)
         global_pf = fronts[0]
         global_pf_solutions = population[global_pf, :].copy()
         archive = [global_pf_solutions]
@@ -275,7 +274,7 @@ class NSCO_Algorithm:
             population_age += 1
 
             pop_objs = np.array([self.multiobj(x) for x in population])
-            fronts = fast_non_dominated_sort(pop_objs)
+            fronts = self.fast_non_dominated_sort(pop_objs)
             global_pf = fronts[0]
             global_pf_solutions = population[global_pf, :].copy()
             archive.append(global_pf_solutions)
@@ -293,7 +292,7 @@ class NSCO_Algorithm:
 # --------------------------
 if __name__ == "__main__":
     # 外部傳入的目標函數範例，可根據需求調整邏輯
-    def load(x):
+    def load(x, w, v):
         ratio = w / np.dot(x, v) * 100
         return 1 / ratio + 1e-6
 
@@ -329,8 +328,35 @@ if __name__ == "__main__":
     pf_obj_values = np.array([nsco.multiobj(sol) for sol in global_pf_solutions])
     plt.figure()
     plt.scatter(pf_obj_values[:, 0], pf_obj_values[:, 1], c='red', marker='o', edgecolors='k')
-    plt.xlabel('Objective 1')
-    plt.ylabel('Objective 2')
+    plt.xlabel('load')
+    plt.ylabel('change')
     plt.title('Final Pareto Front')
     plt.grid(True)
+    plt.show()
+
+    # 依據 archive 建立所有解在目標空間的資料，並記錄它們所屬的迭代次數
+    all_obj_values = []  # 存放所有解的目標值 (N, 2)
+    iter_numbers = []  # 存放各解所屬的迭代次數 (N,)
+    for i, pareto_front in enumerate(archive):
+        # 計算每個 Pareto 解的目標值
+        obj_vals = np.array([nsco.multiobj(sol) for sol in pareto_front])
+        all_obj_values.append(obj_vals)
+        # 使用 i+1 表示第 i+1 代 (使迭代數從 1 開始)
+        iter_numbers.append(np.full(obj_vals.shape[0], i + 1))
+
+    # 合併所有代的資料
+    all_obj_values = np.vstack(all_obj_values)
+    iter_numbers = np.concatenate(iter_numbers)
+
+    # 畫圖，並使用 colorbar 表示每個解的所屬迭代次數
+    plt.figure(figsize=(8, 6))
+    sc = plt.scatter(all_obj_values[:, 0], all_obj_values[:, 1],
+                     c=iter_numbers, cmap='jet', alpha=0.7, edgecolors='k')
+    plt.xlabel('load')
+    plt.ylabel('change')
+    plt.title('Pareto Fronts')
+    plt.grid(True)
+    # 建立 colorbar 並加上標籤
+    cbar = plt.colorbar(sc)
+    cbar.set_label('Iteration')
     plt.show()
