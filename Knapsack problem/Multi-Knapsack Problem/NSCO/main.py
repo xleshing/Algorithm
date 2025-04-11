@@ -287,7 +287,7 @@ def get_node_capacity():
 
 
 # 根據演算法輸出調整節點狀態
-def adjust_nodes(capacity, tolerance_value, max_delay, namespaces_str, mode):
+def adjust_nodes(capacity, tolerance_value, jitter_tolerance, max_delay, namespaces_str, mode):
     namespaces = namespaces_str.split(" ")
     turn_node_on = 0
     pod_cpu, pod_mem = get_pod_usage(namespaces, mode)
@@ -342,8 +342,8 @@ def adjust_nodes(capacity, tolerance_value, max_delay, namespaces_str, mode):
             else:
                 best_sol = np.array(node_status)
 
-            if best_sol.tolist() == node_status:
-                logger.debug("目前已是最佳或找不到最佳，保持原狀態")
+            if best_sol.tolist() == node_status or abs((weight[0] / np.dot(node_status, values) * 100) - (weight[0] / np.dot(best_sol, values) * 100)) <= jitter_tolerance:
+                logger.debug(f"目前已是最佳或找不到最佳，保持原狀態{best_sol.tolist() == node_status, abs((weight[0] / np.dot(node_status, values) * 100) - (weight[0] / np.dot(best_sol, values) * 100))}")
             else:
                 decision = best_sol
                 # 先開再關
@@ -365,6 +365,7 @@ if __name__ == "__main__":
                         help="Target Pod Namespaces (namespace_1 namespace_2 ...)")
     parser.add_argument("--capacity", type=float, default=80.0, help="Target Resource Usage（％％）")
     parser.add_argument("--tolerance_value", type=float, default=10.0, help="Tolerance Value（％％）")
+    parser.add_argument("--jitter_tolerance", type=float, default=10.0, help="Jitter Tolerance Value（％％）")
     parser.add_argument("--max_calculate_times", type=int, default=100, help="Max Calculate Times")
     parser.add_argument("--sleep_time", type=int, default=5, help="Sleep Time（s）")
     parser.add_argument("--mode", type=str, choices=["requests", "metrics", "hybrid"], default="hybrid",
@@ -393,5 +394,10 @@ if __name__ == "__main__":
         f"Target Pod Namespaces：{args.namespaces}, Target Resource Usage：{args.capacity}%, Tolerance Value：{args.tolerance_value}%, Max Calculate Times：{args.max_calculate_times}, Sleep Time：{args.sleep_time}s, Log Level：{args.log_level}")
     # print(f"目標資源使用率：{args.capacity}%, 上下限空間：{args.active_range}%, 最大計算次數：{args.max_calculate_times}, 睡眠時間{args.sleep_time}s, 日誌級別：{args.log_level}")
     while True:
-        adjust_nodes(args.capacity, args.tolerance_value, args.max_calculate_times, args.namespaces, args.mode)
+        adjust_nodes(capacity=args.capacity,
+                     tolerance_value=args.tolerance_value,
+                     jitter_tolerance=args.jitter_tolerance,
+                     max_delay=args.max_calculate_times,
+                     namespaces_str=args.namespaces,
+                     mode=args.mode)
         time.sleep(args.sleep_time)
