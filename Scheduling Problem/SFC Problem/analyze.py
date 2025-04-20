@@ -1,86 +1,79 @@
+import os
+import re
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-import glob
-import re
 
 
-def extract_node_from_filename(filename):
+def load_objectives(dir_path):
+    data = {}
+    pattern = re.compile(r'_(\d+)\.csv$')
+    for fname in os.listdir(dir_path):
+        if fname.endswith('.csv'):
+            m = pattern.search(fname)
+            if m:
+                node = int(m.group(1))
+                df = pd.read_csv(os.path.join(dir_path, fname))
+                pts = np.column_stack([
+                    df['LoadBalance'].values,
+                    df['Average Delay'].values,
+                    -df['Throughput'].values
+                ])
+                data[node] = pts
+    return data
+
+
+def pareto_front(points):
     """
-    從檔名中使用正規表示法提取節點數
-    假設檔名格式為: nsgaX_node.csv，例如 nsga3_25.csv 或 nsga4_50.csv
+    Identify Pareto-efficient points (minimization for all objectives).
     """
-    match = re.search(r'_(\d+)', filename)
-    if match:
-        return int(match.group(1))
-    else:
-        return None
+    is_efficient = np.ones(points.shape[0], dtype=bool)
+    for i, p in enumerate(points):
+        if is_efficient[i]:
+            is_efficient[is_efficient] = np.any(points[is_efficient] < p, axis=1)
+            is_efficient[i] = True
+    return points[is_efficient]
 
 
-def compute_combined_std(df):
+def igd(reference, approx):
     """
-    計算 CSV 中三個目標的標準差，並以歐幾里得方式合成綜合標準差:
-        combined_std = sqrt(std(LoadBalance)^2 + std(Delay)^2 + std(Throughput)^2)
+    Compute Inverted Generational Distance (IGD):
+    average Euclidean distance from each reference point to the nearest point in approx.
     """
-    std_load = df['LoadBalance'].std(ddof=0)
-    std_delay = df['Average Delay'].std(ddof=0)
-    std_through = df['Throughput'].std(ddof=0)
-    return np.sqrt(std_load ** 2 + std_delay ** 2 + std_through ** 2)
+    dists = []
+    for r in reference:
+        dists.append(np.min(np.linalg.norm(approx - r, axis=1)))
+    return np.mean(dists)
 
 
-def load_and_process_files(file_pattern):
-    """
-    根據 file_pattern 讀取所有 CSV 檔案，並回傳一個 dict {node: combined_std}
-    """
-    std_dict = {}
-    for filepath in glob.glob(file_pattern):
-        node_count = extract_node_from_filename(filepath)
-        if node_count is None:
-            raise ValueError()
-        df = pd.read_csv(filepath)
-        # 計算綜合標準差
-        combined_std = compute_combined_std(df)
-        std_dict[node_count] = combined_std
-    return std_dict
+# Paths to data directories
+dir3 = 'NSGA3/nsga3csv/data1'
+dir4 = 'NSGA4/nsga4csv/data1'
 
-nsga3_std_sum = {}
-nsga4_std_sum = {}
+# Load objectives
+nsga3_data = load_objectives(dir3)
+nsga4_data = load_objectives(dir4)
 
-for i in range(1, 11):
-    # 讀取 nsga3 與 nsga4 的檔案，請根據實際路徑調整 pattern
-    nsga3_std = load_and_process_files(f"nsga3csv/data{i}/NSGA3_solutions_data_*.csv")
-    nsga4_std = load_and_process_files(f"nsga4csv/data{i}/NSGA4_solutions_data_*.csv")
+# Node counts present in both methods
+nodes = sorted(set(nsga3_data.keys()) & set(nsga4_data.keys()))
 
-    # 依節點數排序
-    nodes_nsga3 = sorted(nsga3_std.keys())
-    nodes_nsga4 = sorted(nsga4_std.keys())
-    if i > 1:
-        for j in nodes_nsga3:
-            nsga3_std_sum[j] += nsga3_std[j]
-        for k in nodes_nsga3:
-            nsga4_std_sum[k] += nsga4_std[k]
-    else:
-        for j in nodes_nsga3:
-            nsga3_std_sum[j] = nsga3_std[j]
-        for k in nodes_nsga3:
-            nsga4_std_sum[k] = nsga4_std[k]
+# Compute IGD for NSGA3 and NSGA4
+igd3 = []
+igd4 = []
+for node in nodes:
+    merged = np.vstack([nsga3_data[node], nsga4_data[node]])
+    reference = pareto_front(merged)
+    igd3.append(igd(reference, nsga3_data[node]))
+    igd4.append(igd(reference, nsga4_data[node]))
 
-plt.figure(figsize=(8, 6))
-plt.plot(sorted(nsga3_std_sum.keys()), [nsga3_std_sum[n] / 10 for n in sorted(nsga3_std_sum.keys())],
-         marker='o', label='NSGA3')
-plt.plot(sorted(nsga4_std_sum.keys()), [nsga4_std_sum[n] / 10 for n in sorted(nsga4_std_sum.keys())],
-         marker='s', label='NSGA4')
-plt.xlabel('Node Num')
-plt.ylabel('Average Combined STD')
-plt.title('NSGA3 vs NSGA4 with different Node Num')
+# Plot IGD vs Node Count
+plt.figure()
+plt.plot(nodes, igd3, marker='o', label='NSGA3')
+plt.plot(nodes, igd4, marker='s', label='NSGA4')
+plt.xlabel('Node Count')
+plt.ylabel('IGD')
+plt.title('IGD Comparison Across Node Counts')
 plt.legend()
 plt.grid(True)
+plt.tight_layout()
 plt.show()
-
-data = [{
-    "NSGA3": [nsga3_std_sum[n] / 10 for n in sorted(nsga3_std_sum.keys())],
-    "NSGA4": [nsga4_std_sum[n] / 10 for n in sorted(nsga4_std_sum.keys())],
-
-}]
-df = pd.DataFrame(data)
-df.to_csv(f'analyze.csv', index=False)

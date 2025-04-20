@@ -305,8 +305,10 @@ class NSGA3_SFC:
         self.vnf_traffic = vnf_traffic
         self.population_size = population_size
         self.generations = generations
+
         self.objective_functions = objective_functions
         self.divisions = divisions
+        # 初始種群：每筆解為一個字典 { request_id: [node1, node2, ...] }
         self.graph = {node_id: self.network_nodes[node_id]['neighbors'] for node_id in self.network_nodes}
         self.population = [self.generate_feasible_solution() for _ in range(population_size)]
 
@@ -372,7 +374,6 @@ class NSGA3_SFC:
         :return: 修正後的分配列表
         """
         chain = req['chain']
-
         for i in range(len(assignment)):
             valid = True
             # 檢查當前節點是否具備處理對應 VNF 的能力
@@ -521,7 +522,7 @@ class NSGA3_SFC:
                     candidate_info.append((global_idx, rp, d))
             if not candidate_info:
                 break
-            min_count = min([info[1] for info in candidate_info])
+            min_count = min([niche_count[info[1]] for info in candidate_info])
             candidate_rps = [info for info in candidate_info if niche_count[info[1]] == min_count]
             selected_candidate = min(candidate_rps, key=lambda x: x[2])
             selected.append(selected_candidate[0])
@@ -532,7 +533,7 @@ class NSGA3_SFC:
 
     def selection(self):
         pop = self.population.copy()
-        pop_fitness = np.array([self.compute_objectives(sol) for sol in self.population])
+        pop_fitness = np.array([self.compute_objectives(sol) for sol in pop])
         fronts = self.non_dominated_sort_by_front(pop_fitness)
         new_indices = []
         for front in fronts:
@@ -555,16 +556,9 @@ class NSGA3_SFC:
                 chosen = self.niche_selection(front, assoc, niche_count, remaining_slots)
                 new_indices.extend(chosen)
                 break
-        new_population = [self.population[i] for i in new_indices]
+        new_population = [pop[i] for i in new_indices]
         return new_population
 
-    # def crossover(self, parent1, parent2):
-    #     child1 = parent1.copy()
-    #     child2 = parent2.copy()
-    #     for req_id in parent1.keys():
-    #         if np.random.rand() < 0.5:
-    #             child1[req_id], child2[req_id] = child2[req_id], child1[req_id]
-    #     return child1, child2
     def crossover(self, parent1, parent2):
         child1 = parent1.copy()
         child2 = parent2.copy()
@@ -584,24 +578,6 @@ class NSGA3_SFC:
                 child2 = parent2.copy()
         return child1, child2
 
-    # def mutation(self, solution):
-    #     """
-    #     突變：隨機選擇某筆請求，並在其處理節點序列中隨機更換一個節點
-    #       – 新節點必須支援該 VNF
-    #     """
-    #     sol = solution.copy()
-    #     req = np.random.choice(list(sol.keys()))
-    #     chain = sol[req].copy()
-    #     # 找出該請求對應的 SFC
-    #     sfc = next(item for item in self.sfc_requests if item['id'] == req)
-    #     pos = np.random.randint(0, len(chain))
-    #     candidates = [node['id'] for node in self.network_nodes if sfc['chain'][pos] in node['vnf_types']]
-    #     if candidates:
-    #         chain[pos] = np.random.choice(candidates)
-    #     else:
-    #         chain = self.generate_feasible_assignment_for_request(sfc)
-    #     sol[req] = chain
-    #     return sol
     def mutation(self, solution):
         sol = solution.copy()
         req = np.random.choice(self.sfc_requests)
@@ -619,22 +595,6 @@ class NSGA3_SFC:
             sol = solution.copy()
         return sol
 
-    # def evolve(self):
-    #     for _ in range(self.generations):
-    #         new_population = []
-    #         selected = self.selection()
-    #         for i in range(0, self.population_size, 2):
-    #             parent1 = selected[i]
-    #             parent2 = selected[(i + 1) % self.population_size]
-    #             child1, child2 = self.crossover(parent1, parent2)
-    #             new_population.append(self.mutation(child1))
-    #             new_population.append(self.mutation(child2))
-    #         self.population = new_population[:self.population_size]
-    #     pop = self.population.copy()
-    #     pop_fitness = np.array([self.compute_objectives(sol) for sol in self.population])
-    #     fronts = self.non_dominated_sort_by_front(pop_fitness)
-    #     pareto_front = [pop[idx] for idx in fronts[0]]
-    #     return np.array(pareto_front)
     def evolve(self):
         # 用來存儲每輪的最佳前緣
         generation_pareto_fronts = []
@@ -674,80 +634,6 @@ class NSGA3_SFC:
 #############################################
 
 if __name__ == "__main__":
-    # 節點資料（輸入結構與 NSGA4 完全相同）
-    # network_nodes = [
-    #     {'id': 'A', 'vnf_types': ['0', '1'], 'neighbors': ['B', 'C'],
-    #      'load_per_vnf': {'0': 0.5, '1': 0.7},
-    #      'processing_delay': {'0': 2, '1': 3}},
-    #     {'id': 'B', 'vnf_types': ['0', '2', '3'], 'neighbors': ['A', 'D', 'E'],
-    #      'load_per_vnf': {'0': 0.6, '2': 0.8, '3': 1.0},
-    #      'processing_delay': {'0': 2.5, '2': 2, '3': 2}},
-    #     {'id': 'C', 'vnf_types': ['0', '3', '2'], 'neighbors': ['A', 'D', 'G', 'F'],
-    #      'load_per_vnf': {'0': 0.55, '3': 0.65, '2': 0.75},
-    #      'processing_delay': {'0': 3, '3': 1.5, '2': 2.5}},
-    #     {'id': 'D', 'vnf_types': ['0', '2', '3'], 'neighbors': ['B', 'C', 'E', 'G'],
-    #      'load_per_vnf': {'0': 0.6, '2': 0.85, '3': 0.95},
-    #      'processing_delay': {'0': 3, '2': 1.8, '3': 2}},
-    #     {'id': 'E', 'vnf_types': ['3', '1'], 'neighbors': ['B', 'D', 'H'],
-    #      'load_per_vnf': {'3': 0.5, '1': 0.6},
-    #      'processing_delay': {'3': 3, '1': 1.8}},
-    #     {'id': 'F', 'vnf_types': ['1', '3'], 'neighbors': ['C', 'I', 'J'],
-    #      'load_per_vnf': {'1': 0.7, '3': 0.8},
-    #      'processing_delay': {'1': 3, '3': 1.8}},
-    #     {'id': 'G', 'vnf_types': ['1', '2'], 'neighbors': ['C', 'D', 'I', 'K', 'H'],
-    #      'load_per_vnf': {'1': 0.65, '2': 0.75},
-    #      'processing_delay': {'1': 3, '2': 1.8}},
-    #     {'id': 'H', 'vnf_types': ['0', '2', '3'], 'neighbors': ['E', 'G'],
-    #      'load_per_vnf': {'0': 0.55, '2': 0.65, '3': 0.75},
-    #      'processing_delay': {'0': 3, '2': 1.8, '3': 2}},
-    #     {'id': 'I', 'vnf_types': ['0', '2'], 'neighbors': ['F', 'G', 'K'],
-    #      'load_per_vnf': {'0': 0.6, '2': 0.7},
-    #      'processing_delay': {'0': 3, '2': 1.8}},
-    #     {'id': 'J', 'vnf_types': ['2', '1'], 'neighbors': ['F', 'K'],
-    #      'load_per_vnf': {'2': 0.7, '1': 0.8},
-    #      'processing_delay': {'2': 3, '1': 1.8}},
-    #     {'id': 'K', 'vnf_types': ['1', '3'], 'neighbors': ['G', 'I', 'J'],
-    #      'load_per_vnf': {'1': 0.55, '3': 0.65},
-    #      'processing_delay': {'1': 1.8, '3': 2}},
-    # ]
-    #
-    # # 邊資訊 (無向邊)
-    # edges = {
-    #     ('A', 'B'): 100,
-    #     ('A', 'C'): 80,
-    #     ('C', 'F'): 90,
-    #     ('F', 'J'): 70,
-    #     ('J', 'K'): 60,
-    #     ('K', 'G'): 60,
-    #     ('G', 'H'): 70,
-    #     ('H', 'E'): 80,
-    #     ('E', 'B'): 60,
-    #     ('D', 'B'): 40,
-    #     ('D', 'C'): 100,
-    #     ('D', 'G'): 40,
-    #     ('D', 'E'): 70,
-    #     ('C', 'G'): 50,
-    #     ('I', 'F'): 70,
-    #     ('I', 'G'): 80,
-    #     ('I', 'K'): 70,
-    # }
-    #
-    # # 定義各 VNF 流量需求
-    # vnf_traffic = {
-    #     '0': 10,
-    #     '1': 10,
-    #     '2': 10,
-    #     '3': 10,
-    # }
-    #
-    # # 定義 4 個 SFC 請求（請求編號用 "0", "1", "2", "3"）
-    # sfc_requests = [
-    #     {'id': '0', 'chain': ['0', '1', '2']},
-    #     {'id': '1', 'chain': ['2', '3']},
-    #     {'id': '2', 'chain': ['1', '3']},
-    #     {'id': '3', 'chain': ['0', '3']},
-    # ]
-    # 確保資料夾存在
     os.makedirs("graph1", exist_ok=True)
     os.makedirs("graph2", exist_ok=True)
     os.makedirs("csv", exist_ok=True)
@@ -755,7 +641,7 @@ if __name__ == "__main__":
         os.makedirs(f"graph1/data{i}", exist_ok=True)
         os.makedirs(f"graph2/data{i}", exist_ok=True)
         os.makedirs(f"csv/data{i}", exist_ok=True)
-        for num in range(100, 105, 5):  # 包含15~100，間距5
+        for num in range(20, 25, 5):  # 包含15~100，間距5
             c2l = csv2list()
             network_nodes = c2l.nodes(f"../problem/data{i}/nodes/nodes_{num}.csv")
             edges = c2l.edges(f"../problem/data{i}/edges/edges_{num}.csv")
@@ -776,7 +662,6 @@ if __name__ == "__main__":
             end_time = time.time()
             execution_time = end_time - start_time
             print("程式執行時間：", execution_time, "秒")
-            # 輸出最佳解（Pareto 前沿解）
             print("最佳解 (Pareto Front) 共", len(best_solutions), "個：")
             for sol in best_solutions:
                 print("-----")
