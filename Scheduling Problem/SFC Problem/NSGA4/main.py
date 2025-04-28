@@ -572,7 +572,7 @@ if __name__ == "__main__":
     os.makedirs("graph1", exist_ok=True)
     os.makedirs("graph2", exist_ok=True)
     os.makedirs("csv", exist_ok=True)
-    for i in range(1, 11):
+    for i in range(2, 3):
         os.makedirs(f"graph1/data{i}", exist_ok=True)
         os.makedirs(f"graph2/data{i}", exist_ok=True)
         os.makedirs(f"csv/data{i}", exist_ok=True)
@@ -580,7 +580,7 @@ if __name__ == "__main__":
             c2l = csv2list()
             network_nodes = c2l.nodes(f"../problem/data{i}/nodes/nodes_{num}.csv")
             edges = c2l.edges(f"../problem/data{i}/edges/edges_{num}.csv")
-            vnf_traffic = c2l.vnfs(f"../problem/data{i}/vnfs/vnfs_15.csv")
+            vnf_traffic = c2l.vnfs(f"../problem/data{i}/vnfs/vnfs_{num}.csv")
             sfc_requests = c2l.demands("../problem/demands/demands.csv")
 
             population_size = 20
