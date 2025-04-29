@@ -158,32 +158,71 @@ class NSCO_Algorithm:
         new_sol = self.repair(new_sol)
         return new_sol
 
+    # def nsco_crossover(self, sub_pop):
+    #     """
+    #     父代交叉產生 pup：
+    #      隨機選取兩個父代，根據隨機遮罩決定每一維度來源，
+    #      未選到的部分以隨機 0/1 產生突變
+    #     """
+    #     parents_idx = np.random.choice(self.coyotes_per_group, 2, replace=False)
+    #     mutation_prob = 1 / self.d
+    #     parent_prob = (1 - mutation_prob) / 2
+    #
+    #     pdr = np.random.permutation(self.d)
+    #     p1_mask = np.zeros(self.d, dtype=bool)
+    #     p2_mask = np.zeros(self.d, dtype=bool)
+    #     p1_mask[pdr[0]] = True
+    #     p2_mask[pdr[1]] = True
+    #     if self.d > 2:
+    #         rand_vals = np.random.rand(self.d - 2)
+    #         p1_mask[pdr[2:]] = (rand_vals < parent_prob)
+    #         p2_mask[pdr[2:]] = (rand_vals > (1 - parent_prob))
+    #     mut_mask = ~(p1_mask | p2_mask)
+    #     pup = (p1_mask * sub_pop[parents_idx[0], :] +
+    #            p2_mask * sub_pop[parents_idx[1], :] +
+    #            mut_mask * np.random.randint(2, size=self.d))
+    #     # 修正交叉產生的解
+    #     pup = self.repair(pup)
+    #     return pup
     def nsco_crossover(self, sub_pop):
         """
-        父代交叉產生 pup：
-         隨機選取兩個父代，根據隨機遮罩決定每一維度來源，
-         未選到的部分以隨機 0/1 產生突變
+        應用三段式交配公式：
+          pup_j = father_j   if rnd_j < P_s or j == j1
+                  mother_j   if rnd_j >= P_s + P_a or j == j2
+                  R_j        otherwise
+        其中 P_s = 1/d, P_a = (1 - P_s)/2
         """
-        parents_idx = np.random.choice(self.coyotes_per_group, 2, replace=False)
-        mutation_prob = 1 / self.d
-        parent_prob = (1 - mutation_prob) / 2
+        d = self.d
+        # 計算父代貢獻與突變機率
+        P_s = 1 / d
+        P_a = (1 - P_s) / 2
 
-        pdr = np.random.permutation(self.d)
-        p1_mask = np.zeros(self.d, dtype=bool)
-        p2_mask = np.zeros(self.d, dtype=bool)
-        p1_mask[pdr[0]] = True
-        p2_mask[pdr[1]] = True
-        if self.d > 2:
-            rand_vals = np.random.rand(self.d - 2)
-            p1_mask[pdr[2:]] = (rand_vals < parent_prob)
-            p2_mask[pdr[2:]] = (rand_vals > (1 - parent_prob))
-        mut_mask = ~(p1_mask | p2_mask)
-        pup = (p1_mask * sub_pop[parents_idx[0], :] +
-               p2_mask * sub_pop[parents_idx[1], :] +
-               mut_mask * np.random.randint(2, size=self.d))
-        # 修正交叉產生的解
-        pup = self.repair(pup)
-        return pup
+        # 隨機選兩位父代
+        parents_idx = np.random.choice(self.coyotes_per_group, 2, replace=False)
+        father = sub_pop[parents_idx[0], :].copy()
+        mother = sub_pop[parents_idx[1], :].copy()
+
+        # 產生保證繼承位置 j1, j2
+        perm = np.random.permutation(d)
+        j1, j2 = perm[0], perm[1]
+
+        # 隨機數序列與隨機位點候選解
+        rnd = np.random.rand(d)
+        R = np.random.randint(2, size=d)
+
+        # 建立子代
+        pup = np.empty(d, dtype=int)
+        for j in range(d):
+            if rnd[j] < P_s or j == j1:
+                pup[j] = father[j]
+            elif rnd[j] >= P_s + P_a or j == j2:
+                pup[j] = mother[j]
+            else:
+                pup[j] = R[j]
+
+        # 修復為可行解後回傳
+        return self.repair(pup)
+
 
     def nsco_update_group(self, population, group_indices, population_age):
         """
