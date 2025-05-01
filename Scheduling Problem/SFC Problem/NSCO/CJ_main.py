@@ -1,454 +1,325 @@
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
+import time
+import os
+from collections import deque
+from csv2list import csv2list
+
+# ----------------------------------------
+# 輔助函數與目標函數（外部定義）
+# ----------------------------------------
+def bfs_shortest_path(graph, start, goal):
+    visited = set()
+    queue = deque([[start]])
+    while queue:
+        path = queue.popleft()
+        node = path[-1]
+        if node == goal:
+            return path
+        if node not in visited:
+            visited.add(node)
+            for nb in graph.get(node, []):
+                new_path = path + [nb]
+                queue.append(new_path)
+    return None
 
 
-# --------------------------
-# NSCO for Knapsack Problem (改為多目標：效益與原狀態改動數)
-# --------------------------
-class NSCO_Algorithm:
-    def __init__(self, turn_node_on, d, value, weight, capacity, coyotes_per_group, n_groups, p_leave, max_iter,
-                 max_delay, original_status, objs_func=None):
-        """
-        參數定義：
-          turn_node_on: 初始節點開啟狀態（若有用）
-          d: 問題維度（物品數量）
-          value: 每項物品的資源提供值 (1D 陣列)
-          weight: 總資源使用量（scalar）
-          capacity: 容量限制（SLA）
-          coyotes_per_group: 每群土狼數量
-          n_groups: 群數
-          p_leave: 群間交換機率參數
-          max_iter: 最大迭代次數
-          max_delay: 約束重生成嘗試次數
-          original_status: 原始背包解 (0/1 列表)
-          external_obj_func: 外部傳入的目標函數 (接收 x 輸入並回傳效益值)
-        """
-        self.turn_node_on = turn_node_on
-        self.d = d
-        self.value = np.array(value)
-        self.weight = weight
-        self.capacity = capacity
+def get_complete_path(assignment, graph):
+    complete = []
+    for i in range(len(assignment)-1):
+        seg = bfs_shortest_path(graph, assignment[i], assignment[i+1]) or [assignment[i], assignment[i+1]]
+        complete.extend(seg if i==0 else seg[1:])
+    return complete
+
+
+def objective_load_balance(solution, network_nodes, sfc_requests, vnf_traffic):
+    loads = {n:0.0 for n in network_nodes}
+    for req in sfc_requests:
+        chain = req['chain']
+        assign = solution[req['id']]
+        for i,node in enumerate(assign):
+            demand = vnf_traffic[chain[i]]
+            loads[node] += demand * network_nodes[node]['load_per_vnf'][chain[i]]
+    return np.std(list(loads.values()))
+
+
+def average_objective_end_to_end_delay_bfs(solution, network_nodes, edges, vnf_traffic, sfc_requests):
+    graph = {n:network_nodes[n]['neighbors'] for n in network_nodes}
+    total = 0.0
+    for req in sfc_requests:
+        chain = req['chain']
+        assign = solution[req['id']]
+        node_delay = sum(network_nodes[assign[i]]['processing_delay'][chain[i]]
+                         for i in range(len(assign)))
+        edge_delay = 0.0
+        for i in range(len(assign)-1):
+            path = bfs_shortest_path(graph, assign[i], assign[i+1]) or []
+            for j in range(len(path)-1):
+                e = (path[j], path[j+1])
+                cap = edges.get(e, edges.get((e[1],e[0]), 1e-6))
+                edge_delay += vnf_traffic[chain[0]]/cap
+        total += node_delay + edge_delay
+    return total/len(sfc_requests)
+
+
+def objective_network_throughput(solution, edges, sfc_requests, vnf_traffic):
+    graph = {}
+    for (n1,n2),cap in edges.items():
+        graph.setdefault(n1,[]).append(n2)
+        graph.setdefault(n2,[]).append(n1)
+    flow = {e:0.0 for e in edges}
+    for req in sfc_requests:
+        assign = solution[req['id']]
+        demand = vnf_traffic[req['chain'][0]]
+        for i in range(len(assign)-1):
+            path = bfs_shortest_path(graph, assign[i], assign[i+1]) or []
+            for j in range(len(path)-1):
+                e = (path[j],path[j+1])
+                if e in flow: flow[e] += demand
+                elif (e[1],e[0]) in flow: flow[(e[1],e[0])] += demand
+    # 檢查容量
+    for e,f in flow.items():
+        if f>edges[e]: return float('inf')
+    total_flow = sum(flow.values())
+    return 1/(total_flow+1e-6)
+
+
+def within_capacity(edge_flow, edges):
+    return all(edge_flow[e]<=edges[e] for e in edge_flow)
+
+
+# ----------------------------------------
+# NSCO_SFC 類別
+# ----------------------------------------
+class NSCO_SFC:
+    def __init__(self, network_nodes, edges, sfc_requests, vnf_traffic,
+                 coyotes_per_group=5, n_groups=5,
+                 p_leave=0.1, max_iter=100, max_delay=100):
+        self.network_nodes = network_nodes
+        self.edges = edges
+        self.sfc_requests = sfc_requests
+        self.vnf_traffic = vnf_traffic
         self.coyotes_per_group = coyotes_per_group
         self.n_groups = n_groups
         self.p_leave = p_leave
         self.max_iter = max_iter
         self.max_delay = max_delay
-        self.original_status = np.array(original_status)
-        # 採用外部目標函數或預設函數
-        self.objs_func = objs_func
+        self.chain_lens = [len(r['chain']) for r in sfc_requests]
+        self.D = sum(self.chain_lens)
 
-    # --------------------------
-    # 非支配排序輔助函式 (均視為 minimization 目標)
-    # --------------------------
+    def dominates(self,u,v):
+        return np.all(u<=v) and np.any(u<v)
 
-    def dominates(self, u, v):
-        """
-        判斷向量 u 是否支配向量 v（均為 minimization 目標）
-        u 支配 v 當且僅當 u 的所有目標值均 ≤ v，且至少有一個目標值 < v
-        """
-        return np.all(u <= v) and np.any(u < v)
-
-    def fast_non_dominated_sort(self, pop_objs):
-        """
-        快速非支配排序
-        輸入:
-          pop_objs: (N x M) 陣列，每列為一解的 M 個目標值
-        回傳:
-          fronts: 一串列表，每一列表包含該 front 中解的索引 (第一 front 為 Pareto 前沿)
-        """
-        N = pop_objs.shape[0]
-        domination_counts = np.zeros(N, dtype=int)
-        dominated = [[] for _ in range(N)]
-        fronts = []
-
-        front1 = []
+    def fast_non_dominated_sort(self,pop_objs):
+        N=len(pop_objs)
+        dom_count=np.zeros(N,int);
+        dominated=[[] for _ in range(N)]; fronts=[]
+        f1=[]
         for i in range(N):
             for j in range(N):
-                if i == j:
-                    continue
-                if self.dominates(pop_objs[i], pop_objs[j]):
+                if i==j: continue
+                if self.dominates(pop_objs[i],pop_objs[j]):
                     dominated[i].append(j)
-                elif self.dominates(pop_objs[j], pop_objs[i]):
-                    domination_counts[i] += 1
-            if domination_counts[i] == 0:
-                front1.append(i)
-        fronts.append(front1)
-
-        i = 0
+                elif self.dominates(pop_objs[j],pop_objs[i]):
+                    dom_count[i]+=1
+            if dom_count[i]==0: f1.append(i)
+        fronts.append(f1)
+        i=0
         while fronts[i]:
-            next_front = []
-            for j in fronts[i]:
-                for k in dominated[j]:
-                    domination_counts[k] -= 1
-                    if domination_counts[k] == 0:
-                        next_front.append(k)
-            i += 1
-            fronts.append(next_front)
-        fronts.pop()  # 移除最後空的 front
-        return fronts
+            next_f=[]
+            for p in fronts[i]:
+                for q in dominated[p]:
+                    dom_count[q]-=1
+                    if dom_count[q]==0: next_f.append(q)
+            i+=1; fronts.append(next_f)
+        fronts.pop(); return fronts
 
-    def is_feasible(self, x):
-        """
-        檢查解 x 是否滿足容量限制：
-          若未選物品或目標比率超過容量上限，視為不可行
-        """
-        if np.dot(x, self.value) == 0:
-            return False
-        ratio = self.weight / np.dot(x, self.value) * 100
-        return (ratio <= self.capacity)
+    def encode(self,sol_dict):
+        arr=[]
+        for req in self.sfc_requests:
+            arr.extend(sol_dict[req['id']])
+        return np.array(arr,int)
 
-    def repair(self, x):
-        """
-        當解超過容量上限時，重新生成一個滿足容量限制的解。
-        會嘗試最多 max_delay 次，直到找到可行解為止。
-        """
-        attempts = 0
-        while not self.is_feasible(x) and attempts < self.max_delay:
-            x = np.random.randint(2, size=self.d)
-            attempts += 1
-        return x
+    def decode(self,arr):
+        sol={}; idx=0
+        for req in self.sfc_requests:
+            L=len(req['chain'])
+            sol[req['id']]=arr[idx:idx+L].tolist(); idx+=L
+        return sol
 
-    def multiobj(self, x):
-        f1 = self.objs_func[0]
-        f2 = self.objs_func[1]
-        return np.array([f1(x, self.weight, self.value), f2(x, self.original_status)])
+    def multiobj(self,arr):
+        sol=self.decode(arr)
+        f1=objective_load_balance(sol,self.network_nodes,self.sfc_requests,self.vnf_traffic)
+        f2=average_objective_end_to_end_delay_bfs(sol,self.network_nodes,self.edges,
+                                                  self.vnf_traffic,self.sfc_requests)
+        f3=objective_network_throughput(sol,self.edges,self.sfc_requests,self.vnf_traffic)
+        return np.array([f1,f2,f3])
+
+    def is_feasible(self,arr):
+        sol=self.decode(arr)
+        graph={n:self.network_nodes[n]['neighbors'] for n in self.network_nodes}
+        flow={e:0.0 for e in self.edges}
+        for req in self.sfc_requests:
+            path=get_complete_path(sol[req['id']],graph)
+            dem=self.vnf_traffic[req['chain'][0]]
+            for i in range(len(path)-1):
+                e=(path[i],path[i+1])
+                if e in flow: flow[e]+=dem
+                elif (e[1],e[0]) in flow: flow[(e[1],e[0])]+=dem
+        return within_capacity(flow,self.edges)
+
+    def repair(self,arr):
+        att=0
+        while not self.is_feasible(arr) and att<self.max_delay:
+            sol={}
+            for req in self.sfc_requests:
+                sol[req['id']]=[np.random.choice(
+                    [nid for nid,n in self.network_nodes.items() if vnf in n['vnf_types']]
+                ) for vnf in req['chain']]
+            arr=self.encode(sol); att+=1
+        return arr
 
     def nsco_initialize_population(self):
-        """
-        初始化 0/1 背包族群，確保解不違反容量限制
-        回傳：
-          population: (total_coyotes, d) 二進制陣列
-          groups: (n_groups, coyotes_per_group) 群體索引配置
-          population_age: 每隻土狼的年齡 (全設 0)
-        """
-        total_coyotes = self.n_groups * self.coyotes_per_group
-        population = np.random.randint(2, size=(total_coyotes, self.d))
-        # 利用 repair 函數修正不滿足容量限制的解
-        for idx in range(total_coyotes):
-            if not self.is_feasible(population[idx, :]):
-                population[idx, :] = self.repair(population[idx, :])
-        indices = np.random.permutation(total_coyotes)
-        groups = indices.reshape(self.n_groups, self.coyotes_per_group)
-        population_age = np.zeros(total_coyotes, dtype=int)
-        return population, groups, population_age
+        total=self.n_groups*self.coyotes_per_group
+        pop=np.zeros((total,self.D),int)
+        for i in range(total): pop[i]=self.repair(np.random.randint(0,self.D,self.D))
+        idxs=np.random.permutation(total)
+        return pop,idxs.reshape(self.n_groups,self.coyotes_per_group),np.zeros(total,int)
 
-    def nsco_compute_cultural_tendency(self, sub_pop):
-        """
-        文化傾向：以群內各解的中位數（取 0/1 後四捨五入）作為文化基因
-        """
-        return np.round(np.median(sub_pop, axis=0)).astype(int)
+    def _update_coyote(self,sol,alpha,cult):
+        d=len(sol)
+        delta1=alpha-sol; delta2=cult-sol
+        mask=np.random.rand(d)<0.5
+        cand=np.where(mask,np.abs(delta1),np.abs(delta2))
+        return self.repair((cand>0).astype(int))
 
-    def nsco_update_coyote(self, i, sub_pop, alpha_coyote, cultural_tendency):
-        """
-        更新單隻土狼：
-         隨機選取群內兩個其他解，計算差異向量後以隨機方式決定更新方向，
-         轉換為 0/1 向量作為候選解。
-        """
-        candidates = list(range(self.coyotes_per_group))
-        candidates.remove(i)
-        qj1 = np.random.choice(candidates)
-        candidates.remove(qj1)
-        qj2 = np.random.choice(candidates)
-        delta1 = alpha_coyote - sub_pop[qj1, :]
-        delta2 = cultural_tendency - sub_pop[qj2, :]
-        rand_mask = np.random.rand(self.d) < 0.5
-        candidate = np.where(rand_mask, np.abs(delta1), np.abs(delta2))
-        new_sol = (candidate > 0).astype(int)
-        # 修正新產生的解
-        new_sol = self.repair(new_sol)
-        return new_sol
-
-    # def nsco_crossover(self, sub_pop):
-    #     """
-    #     父代交叉產生 pup：
-    #      隨機選取兩個父代，根據隨機遮罩決定每一維度來源，
-    #      未選到的部分以隨機 0/1 產生突變
-    #     """
-    #     parents_idx = np.random.choice(self.coyotes_per_group, 2, replace=False)
-    #     mutation_prob = 1 / self.d
-    #     parent_prob = (1 - mutation_prob) / 2
-    #
-    #     pdr = np.random.permutation(self.d)
-    #     p1_mask = np.zeros(self.d, dtype=bool)
-    #     p2_mask = np.zeros(self.d, dtype=bool)
-    #     p1_mask[pdr[0]] = True
-    #     p2_mask[pdr[1]] = True
-    #     if self.d > 2:
-    #         rand_vals = np.random.rand(self.d - 2)
-    #         p1_mask[pdr[2:]] = (rand_vals < parent_prob)
-    #         p2_mask[pdr[2:]] = (rand_vals > (1 - parent_prob))
-    #     mut_mask = ~(p1_mask | p2_mask)
-    #     pup = (p1_mask * sub_pop[parents_idx[0], :] +
-    #            p2_mask * sub_pop[parents_idx[1], :] +
-    #            mut_mask * np.random.randint(2, size=self.d))
-    #     # 修正交叉產生的解
-    #     pup = self.repair(pup)
-    #     return pup
-    def nsco_crossover(self, sub_pop):
-        """
-        應用三段式交配公式：
-          pup_j = father_j   if rnd_j < P_s or j == j1
-                  mother_j   if rnd_j >= P_s + P_a or j == j2
-                  R_j        otherwise
-        其中 P_s = 1/d, P_a = (1 - P_s)/2
-        """
-        d = self.d
-        # 計算父代貢獻與突變機率
-        P_s = 1 / d
-        P_a = (1 - P_s) / 2
-
-        # 隨機選兩位父代
-        parents_idx = np.random.choice(self.coyotes_per_group, 2, replace=False)
-        father = sub_pop[parents_idx[0], :].copy()
-        mother = sub_pop[parents_idx[1], :].copy()
-
-        # 產生保證繼承位置 j1, j2
-        perm = np.random.permutation(d)
-        j1, j2 = perm[0], perm[1]
-
-        # 隨機數序列與隨機位點候選解
-        rnd = np.random.rand(d)
-        R = np.random.randint(2, size=d)
-
-        # 建立子代
-        pup = np.empty(d, dtype=int)
+    def _crossover(self,sub):
+        d=self.D; P_s=1/d; P_a=(1-P_s)/2
+        f,m=sub[np.random.choice(len(sub),2,False)]
+        rnd=np.random.rand(d); R=np.random.randint(2,size=d)
+        pup=np.empty(d,int)
+        j1,j2=np.random.choice(d,2,False)
         for j in range(d):
-            if rnd[j] < P_s or j == j1:
-                pup[j] = father[j]
-            elif rnd[j] >= P_s + P_a or j == j2:
-                pup[j] = mother[j]
-            else:
-                pup[j] = R[j]
-
-        # 修復為可行解後回傳
+            if rnd[j]<P_s or j==j1: pup[j]=f[j]
+            elif rnd[j]>=P_s+P_a or j==j2: pup[j]=m[j]
+            else: pup[j]=R[j]
         return self.repair(pup)
 
+    def nsco_update_group(self,pop,grp,ages):
+        sub=pop[grp]; objs=np.array([self.multiobj(s) for s in sub])
+        fronts=self.fast_non_dominated_sort(objs)
+        alpha=sub[np.random.choice(fronts[0])] if fronts[0] else sub[0]
+        cult=np.round(np.median(sub,0)).astype(int)
+        for li,gi in enumerate(grp):
+            new=self._update_coyote(sub[li],alpha,cult)
+            if self.dominates(self.multiobj(new),objs[li]): pop[gi],ages[gi]=new,0
+        pup=self._crossover(sub); pup_obj=self.multiobj(pup)
+        for li,gi in enumerate(grp):
+            if self.dominates(pup_obj,objs[li]): pop[gi],ages[gi]=pup,0; break
+        return pop,ages
 
-    def nsco_update_group(self, population, group_indices, population_age):
-        """
-        對一個群內進行更新：
-         (1) 依多目標評價及非支配排序取得群內 Pareto 前沿，
-             隨機選取其中一個作為領導者 (alpha) 並計算群文化傾向；
-         (2) 對每隻個體利用 nsco_update_coyote 嘗試更新，
-             若新解在多目標上支配原解則予以採納；
-         (3) 利用 nsco_crossover 產生 pup，
-             若其在多目標上支配群中部分解，則以年齡輔助替換其中年齡最高者。
-        """
-        sub_pop = population[group_indices, :].copy()
-        sub_objs = np.array([self.multiobj(x) for x in sub_pop])
-        sub_age = population_age[group_indices].copy()
-        n_pack = len(group_indices)
+    def nsco_coyote_exchange(self,pop,grps):
+        if self.n_groups<2 or np.random.rand()>=self.p_leave: return grps
+        g1,g2=np.random.choice(self.n_groups,2,False)
+        def get_last(g):
+            idxs=grps[g]; objs=np.array([self.multiobj(pop[i]) for i in idxs])
+            return self.fast_non_dominated_sort(objs)[-1]
+        l1,l2=get_last(g1),get_last(g2)
+        size=max(len(l1),len(l2))
+        def expand(front,last):
+            if len(last)==size: return last
+            prev=front[-2] if len(front)>1 else last
+            return np.concatenate([last,np.random.choice(prev,size-len(last),True)])
+        f1= self.fast_non_dominated_sort(np.array([self.multiobj(pop[i]) for i in grps[g1]]))
+        f2= self.fast_non_dominated_sort(np.array([self.multiobj(pop[i]) for i in grps[g2]]))
+        p1=expand(f1,l1); p2=expand(f2,l2)
+        swap1,swap2=grps[g1][p1].copy(),grps[g2][p2].copy()
+        grps[g1][p1],grps[g2][p2]=swap2,swap1
+        return grps
 
-        fronts = self.fast_non_dominated_sort(sub_objs)
-        if len(fronts[0]) > 0:
-            alpha_idx = np.random.choice(fronts[0])
-            alpha_coyote = sub_pop[alpha_idx, :].copy()
-        else:
-            alpha_coyote = sub_pop[0, :].copy()
-        cultural_tendency = self.nsco_compute_cultural_tendency(sub_pop)
-
-        for i in range(n_pack):
-            new_sol = self.nsco_update_coyote(i, sub_pop, alpha_coyote, cultural_tendency)
-            new_obj = self.multiobj(new_sol)
-            if self.dominates(new_obj, sub_objs[i]):
-                sub_pop[i, :] = new_sol
-                sub_objs[i] = new_obj
-                sub_age[i] = 0
-
-        if self.d > 1:
-            pup = self.nsco_crossover(sub_pop)
-            pup_obj = self.multiobj(pup)
-            dominated_indices = []
-            for i in range(n_pack):
-                if self.dominates(pup_obj, sub_objs[i]):
-                    dominated_indices.append(i)
-            if dominated_indices:
-                ages_candidates = sub_age[dominated_indices]
-                worst_idx_local = dominated_indices[np.argmax(ages_candidates)]
-                sub_pop[worst_idx_local, :] = pup
-                sub_objs[worst_idx_local] = pup_obj
-                sub_age[worst_idx_local] = 0
-
-        population[group_indices, :] = sub_pop
-        population_age[group_indices] = sub_age
-        return population, population_age
-
-    # def nsco_coyote_exchange(self, groups):
-    #     """
-    #     依機率 p_leave（乘上 coyotes_per_group²）隨機抽取兩個不同群，互換各自一隻解
-    #     """
-    #     n_groups, coy_per_group = groups.shape
-    #     exchange_prob = self.p_leave * (self.coyotes_per_group ** 2)
-    #     if n_groups < 2:
-    #         return groups
-    #     if np.random.rand() < exchange_prob:
-    #         g1, g2 = np.random.choice(n_groups, size=2, replace=False)
-    #         c1 = np.random.randint(coy_per_group)
-    #         c2 = np.random.randint(coy_per_group)
-    #         tmp = groups[g1, c1]
-    #         groups[g1, c1] = groups[g2, c2]
-    #         groups[g2, c2] = tmp
-    #     return groups
-    def nsco_coyote_exchange(self, population, groups):
-        """
-        根據交換機率交換兩群的最後一層 Pareto 前緣解：
-        - exchange_prob = p_leave * (coyotes_per_group ** 2)
-        - 隨機選兩群 g1, g2；取各自子群最後一層 front；若數量不一致，以較多者為主，
-          缺失的隨機從前一層補足；然後交換這些位置的索引。
-        """
-        exchange_prob = self.p_leave * (self.coyotes_per_group ** 2)
-        # 機率不符或群數不足時不交換
-        if self.n_groups < 2 or np.random.rand() >= exchange_prob:
-            return groups
-
-        # 隨機選兩個群
-        g1, g2 = np.random.choice(self.n_groups, size=2, replace=False)
-
-        # 使用現有函式計算群內各前緣
-        idxs1 = groups[g1]
-        pop_objs1 = np.array([self.multiobj(population[idx]) for idx in idxs1])
-        fronts1 = self.fast_non_dominated_sort(pop_objs1)
-
-        idxs2 = groups[g2]
-        pop_objs2 = np.array([self.multiobj(population[idx]) for idx in idxs2])
-        fronts2 = self.fast_non_dominated_sort(pop_objs2)
-
-        last1 = fronts1[-1]
-        last2 = fronts2[-1]
-
-        # 確定交換大小
-        size = max(len(last1), len(last2))
-
-        # 補足不足的前緣解
-        def expand(fronts, last):
-            if len(last) == size:
-                return last
-            prev = fronts[-2] if len(fronts) > 1 else last
-            extra = np.random.choice(prev, size - len(last), replace=True)
-            return np.concatenate([last, extra])
-
-        pos1 = expand(fronts1, last1)
-        pos2 = expand(fronts2, last2)
-
-        # 執行交換
-        swap1 = groups[g1][pos1].copy()
-        swap2 = groups[g2][pos2].copy()
-        groups[g1][pos1] = swap2
-        groups[g2][pos2] = swap1
-
-        return groups
-
-    def NSCO_main(self):
-        """
-        NSCO 的主要演化流程：
-         1. 利用 nsco_initialize_population 生成初始族群與群體分配
-         2. 每代對各群依 nsco_update_group 更新，並進行群間交換及年齡增長
-         3. 每代全族群依多目標評價進行非支配排序，第一前沿作為全域最佳記錄
-         4. 最終回傳全域 Pareto 前沿及演化歷程 (archive)
-        """
-        population, groups, population_age = self.nsco_initialize_population()
-        pop_objs = np.array([self.multiobj(x) for x in population])
-        fronts = self.fast_non_dominated_sort(pop_objs)
-        global_pf = fronts[0]
-        global_pf_solutions = population[global_pf, :].copy()
-        archive = [global_pf_solutions]
-
-        for iteration in range(self.max_iter):
-            for g in range(self.n_groups):
-                group_indices = groups[g, :]
-                population, population_age = self.nsco_update_group(population, group_indices, population_age)
-            groups = self.nsco_coyote_exchange(population, groups)
-            population_age += 1
-
-            pop_objs = np.array([self.multiobj(x) for x in population])
-            fronts = self.fast_non_dominated_sort(pop_objs)
-            global_pf = fronts[0]
-            global_pf_solutions = population[global_pf, :].copy()
-            archive.append(global_pf_solutions)
-            # print(f"Iteration {iteration + 1}: Pareto Front size = {len(global_pf)}")
-
-        # 最終檢查：若全局前沿中無可行解，則以原始狀態作為解
-        feasible_front = [sol for sol in global_pf_solutions if self.is_feasible(sol)]
-        if len(feasible_front) == 0:
-            global_pf_solutions = np.array([self.original_status])
-        return global_pf_solutions, archive
+    def run(self):
+        pop,grps,ages=self.nsco_initialize_population()
+        archive=[]
+        for it in range(self.max_iter):
+            for g in range(self.n_groups): pop,ages=self.nsco_update_group(pop,grps[g],ages)
+            grps=self.nsco_coyote_exchange(pop,grps); ages+=1
+            fronts=self.fast_non_dominated_sort(np.array([self.multiobj(i) for i in pop]))
+            archive.append(pop[fronts[0].copy()])
+        final_front=pop[self.fast_non_dominated_sort(np.array([self.multiobj(i) for i in pop]))[0]]
+        return final_front, archive
 
 
-# --------------------------
-# 測試與示意 (main)
-# --------------------------
+# ----------------------------------------
+# 主程式：讀取、執行、輸出與視覺化
+# ----------------------------------------
 if __name__ == "__main__":
-    # 外部傳入的目標函數範例，可根據需求調整邏輯
-    def load(x, w, v):
-        ratio = w / np.dot(x, v) * 100
-        return 1 / (ratio + 1e-6)
+    os.makedirs("graph1", exist_ok=True)
+    os.makedirs("graph2", exist_ok=True)
+    os.makedirs("csv", exist_ok=True)
 
-    def change(x, original_status):
-        return np.sum(np.abs(x - original_status))
+    for i in range(1,4):  # 可設定多組資料編號
+        os.makedirs(f"graph1/data{i}", exist_ok=True)
+        os.makedirs(f"graph2/data{i}", exist_ok=True)
+        os.makedirs(f"csv/data{i}", exist_ok=True)
 
-    # 參數設定
-    # v = [1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000]  # 每項物品資源量
-    # w = np.sum([500, 0, 0, 0, 0, 0, 500, 0, 0, 0])  # 總資源使用量
-    v = np.random.randint(0, 1000, [10,])  # 每項物品資源量
-    w = np.sum(np.random.randint(0, 50, [100,]))  # 總資源使用量
-    c = 80  # SLA 容量限制
+        # 讀檔
+        c2l = csv2list()
+        network_nodes = c2l.nodes(f"../problem/data{i}/nodes/nodes_{len(c2l.nodes_files())}.csv")
+        edges         = c2l.edges(f"../problem/data{i}/edges/edges_{len(c2l.edges_files())}.csv")
+        vnf_traffic   = c2l.vnfs(f"../problem/data{i}/vnfs/vnfs_{len(c2l.vnfs_files())}.csv")
+        sfc_requests  = c2l.demands("../problem/demands/demands.csv")
 
-    nsco = NSCO_Algorithm(
-        turn_node_on=0,
-        d=len(v),
-        value=v,
-        weight=w,
-        capacity=c,
-        coyotes_per_group=5,
-        n_groups=5,
-        p_leave=0.1,
-        max_iter=100,
-        max_delay=100,
-        original_status=np.random.randint(1, 2, [10,]),
-        objs_func=[load, change]  # 使用外部目標函數
-    )
+        # 參數
+        nsco = NSCO_SFC(network_nodes, edges, sfc_requests, vnf_traffic,
+                        coyotes_per_group=5, n_groups=5,
+                        p_leave=0.1, max_iter=50, max_delay=100)
 
-    global_pf_solutions, archive = nsco.NSCO_main()
+        start = time.time()
+        pareto, archive = nsco.run()
+        end   = time.time()
+        print(f"Data{i} 執行時間: {end-start:.2f}s, Pareto 數: {len(pareto)}")
 
-    print("Final Pareto Front Solutions (NSCO):")
-    print(global_pf_solutions)
-    best_pf = [(1 / sol[0] - 1e-6, sol[1]) for sol in [nsco.multiobj(sol).tolist() for sol in global_pf_solutions]]
-    best_ind = sorted(range(len(best_pf)), key=lambda k: [sol[1] for sol in best_pf][k])
-    print([best_pf[ind] for ind in best_ind])
+        # 印出結果
+        for sol in pareto:
+            sol_dict = nsco.decode(sol)
+            print("Solution:")
+            for req in sfc_requests:
+                path = get_complete_path(sol_dict[req['id']],
+                                         {n:network_nodes[n]['neighbors'] for n in network_nodes})
+                print(f" Req{req['id']}: nodes={sol_dict[req['id']]} path={path}")
 
-    # 繪製最終 Pareto 解在目標空間中的分布
-    pf_obj_values = np.array([nsco.multiobj(sol) for sol in global_pf_solutions])
-    plt.figure()
-    plt.scatter(pf_obj_values[:, 0], pf_obj_values[:, 1], c='red', marker='o', edgecolors='k')
-    plt.xlabel('load')
-    plt.ylabel('change')
-    plt.title('Final Pareto Front')
-    plt.grid(True)
-    plt.show()
+        # 目標值與 CSV
+        rows=[]
+        for sol in pareto:
+            obj=nsco.multiobj(sol)
+            rows.append({"Data":i,
+                         "LoadBalance":obj[0],
+                         "AvgDelay"    :obj[1],
+                         "Throughput"  :obj[2]})
+        df = pd.DataFrame(rows)
+        df.to_csv(f"csv/data{i}/nsco_sfc_results_{i}.csv", index=False)
 
-    # 依據 archive 建立所有解在目標空間的資料，並記錄它們所屬的迭代次數
-    all_obj_values = []  # 存放所有解的目標值 (N, 2)
-    iter_numbers = []  # 存放各解所屬的迭代次數 (N,)
-    for i, pareto_front in enumerate(archive):
-        # 計算每個 Pareto 解的目標值
-        obj_vals = np.array([nsco.multiobj(sol) for sol in pareto_front])
-        all_obj_values.append(obj_vals)
-        # 使用 i+1 表示第 i+1 代 (使迭代數從 1 開始)
-        iter_numbers.append(np.full(obj_vals.shape[0], i + 1))
+        # 3D 散點圖
+        fig=plt.figure(figsize=(8,6)); ax=fig.add_subplot(111,projection='3d')
+        ax.scatter(df['LoadBalance'],df['AvgDelay'],df['Throughput'],marker='o')
+        ax.set_xlabel('LoadBalance'); ax.set_ylabel('AvgDelay'); ax.set_zlabel('Throughput')
+        plt.title(f'NSCO_SFC Pareto Data{i}'); plt.savefig(f"graph1/data{i}/3d_{i}.png"); plt.close()
 
-    # 合併所有代的資料
-    all_obj_values = np.vstack(all_obj_values)
-    iter_numbers = np.concatenate(iter_numbers)
+        # 2D 比對圖
+        fig,axs=plt.subplots(1,3,figsize=(15,4))
+        axs[0].scatter(df['LoadBalance'],df['AvgDelay'],marker='o'); axs[0].set(title='LB vs Delay')
+        axs[1].scatter(df['LoadBalance'],df['Throughput'],marker='o'); axs[1].set(title='LB vs Thpt')
+        axs[2].scatter(df['AvgDelay'],df['Throughput'],marker='o'); axs[2].set(title='Delay vs Thpt')
+        plt.tight_layout(); plt.savefig(f"graph2/data{i}/2d_{i}.png"); plt.close()
 
-    # 畫圖，並使用 colorbar 表示每個解的所屬迭代次數
-    plt.figure(figsize=(8, 6))
-    sc = plt.scatter(all_obj_values[:, 0], all_obj_values[:, 1],
-                     c=iter_numbers, cmap='jet', alpha=0.7, edgecolors='k')
-    plt.xlabel('load')
-    plt.ylabel('change')
-    plt.title('Pareto Fronts')
-    plt.grid(True)
-    # 建立 colorbar 並加上標籤
-    cbar = plt.colorbar(sc)
-    cbar.set_label('Iteration')
-    plt.show()
+        # Archive 迭代歷程 CSV
+        it_rows=[]
+        for it,front in enumerate(archive,1):
+            for sol in front:
+                obj = nsco.multiobj(sol)
+                it_rows.append({"Data":i,"Iter":it,
+                                "LoadBalance":obj[0],
+                                "AvgDelay"    :obj[1],
+                                "Throughput"  :obj[2]})
+        pd.DataFrame(it_rows).to_csv(f"csv/data{i}/nsco_sfc_archive_{i}.csv", index=False)
