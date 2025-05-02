@@ -1,15 +1,24 @@
 import numpy as np
 import pandas as pd
+from collections import deque
 import matplotlib.pyplot as plt
 import time
-import os
-from collections import deque
 from csv2list import csv2list
+import os
 
-# ----------------------------------------
-# 輔助函數與目標函數
-# ----------------------------------------
+
+class FindingFailed(Exception):
+    """自訂例外，用來表示跳過當前請求"""
+    pass
+
+
+#############################################
+# 輔助函數：BFS 找最短路徑
+#############################################
 def bfs_shortest_path(graph, start, goal):
+    """
+    使用 BFS 找出從 start 到 goal 的最短路徑（以節點列表回傳），若無路徑則回傳 None
+    """
     visited = set()
     queue = deque([[start]])
     while queue:
@@ -19,340 +28,659 @@ def bfs_shortest_path(graph, start, goal):
             return path
         if node not in visited:
             visited.add(node)
-            for nb in graph.get(node, []):
-                queue.append(path + [nb])
+            for neighbor in graph.get(node, []):
+                new_path = list(path)
+                new_path.append(neighbor)
+                queue.append(new_path)
     return None
 
 
 def get_complete_path(assignment, graph):
-    complete = []
+    """
+    根據一筆 SFC 的處理節點 assignment，
+    利用 BFS 找出相鄰處理節點間的完整路徑，並將所有段落串接成一個完整的物理路徑
+    """
+    complete_path = []
     for i in range(len(assignment) - 1):
-        seg = bfs_shortest_path(graph, assignment[i], assignment[i + 1]) or [assignment[i], assignment[i + 1]]
-        complete.extend(seg if i == 0 else seg[1:])
-    return complete
+        segment = bfs_shortest_path(graph, assignment[i], assignment[i + 1])
+        if segment is None:
+            segment = [assignment[i], assignment[i + 1]]
+        if i == 0:
+            complete_path.extend(segment)
+        else:
+            complete_path.extend(segment[1:])  # 避免重複加入前一段的終點
+    return complete_path
 
 
+#############################################
+# 獨立目標函數定義
+#############################################
 def objective_load_balance(solution, network_nodes, sfc_requests, vnf_traffic):
-    loads = {n: 0.0 for n in network_nodes}
+    """
+    目標1：最小化節點負載均衡
+    根據每個節點處理特定 VNF 時的負載係數（load_per_vnf），
+    累計負載後回傳負載標準差。
+    """
+    node_loads = {node_id: 0.0 for node_id in network_nodes.keys()}
     for req in sfc_requests:
         chain = req['chain']
-        assign = solution[req['id']]
-        for i, node in enumerate(assign):
+        assignment = solution[req['id']]
+        for i, node_id in enumerate(assignment):
             demand = vnf_traffic[chain[i]]
-            loads[str(node)] += demand * network_nodes[str(node)]['load_per_vnf'][str(chain[i])]
-    return np.std(list(loads.values()))
+            # 使用對應 VNF 的負載係數
+            load_factor = network_nodes[node_id]['load_per_vnf'][chain[i]]
+            node_loads[node_id] += demand * load_factor
+    loads_array = np.array(list(node_loads.values()))
+    return np.std(loads_array)
 
 
 def average_objective_end_to_end_delay_bfs(solution, network_nodes, edges, vnf_traffic, sfc_requests):
-    graph = {n: network_nodes[n]['neighbors'] for n in network_nodes}
-    total = 0.0
+    """
+    目標2：最小化端到端延遲
+    對每筆 SFC，計算：
+      - 各節點處理延遲（根據 node 對應 VNF 的處理延遲）
+      - 邊延遲：對於每對連續處理節點，利用 BFS 找出完整路徑，
+        累計沿路每條邊的延遲 (demand / capacity)
+    """
+    graph = {node_id: network_nodes[node_id]['neighbors'] for node_id in network_nodes}
+    total_delay = 0.0
     for req in sfc_requests:
         chain = req['chain']
-        assign = solution[req['id']]
-        node_delay = sum(network_nodes[str(assign[i])]['processing_delay'][chain[i]] for i in range(len(assign)))
+        # 這裡 demand 可視需求選擇使用 chain 中對應的 vnf_traffic，本例中各 VNF 流量相同
+        demand = vnf_traffic[chain[0]]
+        assignment = solution[req['id']]
+        node_delay = sum(network_nodes[assignment[i]]['processing_delay'][chain[i]] for i in range(len(assignment)))
         edge_delay = 0.0
-        for i in range(len(assign) - 1):
-            path = bfs_shortest_path(graph, assign[i], assign[i + 1]) or []
-            for j in range(len(path) - 1):
-                cap = edges.get((path[j], path[j + 1]), edges.get((path[j + 1], path[j]), 1e-6))
-                edge_delay += vnf_traffic[chain[0]] / cap
-        total += node_delay + edge_delay
-    return total / len(sfc_requests)
+        for i in range(len(assignment) - 1):
+            path = bfs_shortest_path(graph, assignment[i], assignment[i + 1])
+            if path is None:
+                raise ValueError(f"{assignment} path is None")
+            else:
+                for j in range(len(path) - 1):
+                    n1, n2 = path[j], path[j + 1]
+                    if (n1, n2) in edges:
+                        cap = edges[(n1, n2)]
+                    elif (n2, n1) in edges:
+                        cap = edges[(n2, n1)]
+                    else:
+                        raise ValueError(f"{n1, n2} not in edges")
+                    edge_delay += demand / cap
+        total_delay += (node_delay + edge_delay)
+    return total_delay / len(sfc_requests)
 
 
 def objective_network_throughput(solution, edges, sfc_requests, vnf_traffic):
+    """
+    目標3：最大化網路吞吐量（取倒數以最小化）
+    - 對每條邊累計經由該邊的流量（利用 BFS 找出完整路徑）
+    - 若任一邊的累計流量超過其容量，則回傳 False
+    - 否則，以所有邊累計流量的倒數作為目標值
+    """
+    # 建立無向圖
     graph = {}
-    for (n1, n2), cap in edges.items():
+    for (n1, n2) in edges:
         graph.setdefault(n1, []).append(n2)
         graph.setdefault(n2, []).append(n1)
-    flow = {e: 0.0 for e in edges}
+
+    edge_flow = {edge: 0.0 for edge in edges.keys()}
     for req in sfc_requests:
-        assign = solution[req['id']]
+        # 這裡假設各 VNF 流量相同，取 chain 中第一個 VNF 的流量需求
         demand = vnf_traffic[req['chain'][0]]
-        for i in range(len(assign) - 1):
-            path = bfs_shortest_path(graph, assign[i], assign[i + 1]) or []
+        assignment = solution[req['id']]
+        for i in range(len(assignment) - 1):
+            path = bfs_shortest_path(graph, assignment[i], assignment[i + 1])
+            if path is None:
+                raise ValueError(f"{assignment} path is None")
             for j in range(len(path) - 1):
-                e = (path[j], path[j + 1])
-                if e in flow:
-                    flow[e] += demand
-                elif (e[1], e[0]) in flow:
-                    flow[(e[1], e[0])] += demand
-    for e, f in flow.items():
-        if f > edges[e]:
-            return float('inf')
-    total_flow = sum(flow.values())
-    return 1 / (total_flow + 1e-6)
+                n1, n2 = path[j], path[j + 1]
+                if (n1, n2) in edges:
+                    edge_flow[(n1, n2)] += demand
+                elif (n2, n1) in edges:
+                    edge_flow[(n2, n1)] += demand
+
+    if not within_capacity(edge_flow, edges):
+        raise ValueError(f"{solution} within_capacity")
+
+    # 僅計算所有邊累計流量的倒數作為目標值
+    total_flow = sum(edge_flow.values())
+    epsilon = 1e-6
+    return 1 / (total_flow + epsilon)
 
 
 def within_capacity(edge_flow, edges):
-    return all(edge_flow[e] <= edges[e] for e in edge_flow)
+    """
+    檢查每條邊的流量是否都在容量限制內。
+    若有任一邊流量超過容量，則回傳 False，否則回傳 True。
+    """
+    for edge, flow in edge_flow.items():
+        if flow > edges[edge]:
+            return False
+    return True
 
 
-# ----------------------------------------
-# NSCO_SFC 類別
-# ----------------------------------------
-class NSCO_SFC:
-    def __init__(self, network_nodes, edges, sfc_requests, vnf_traffic,
-                 coyotes_per_group=5, n_groups=5, p_leave=0.1,
-                 max_iter=100, max_delay=100):
-        if isinstance(network_nodes, list):
-            network_nodes = {node['id']: node for node in network_nodes}
-        self.network_nodes = network_nodes
+#############################################
+# NSGA4_SFC 類別
+#############################################
+class NSGA4_SFC:
+    def __init__(self, network_nodes, edges, sfc_requests, vnf_traffic, population_size, generations):
+        """
+        參數說明：
+          network_nodes: 節點列表，每個元素包含 'id'、'vnf_types'、'neighbors'、'load_per_vnf'、'processing_delay'
+          edges: 邊的字典，鍵為 (node1, node2) 的 tuple，值為邊容量
+          sfc_requests: SFC 請求列表，每筆請求包含 'id' 與 'chain'（VNF 連鎖）
+          vnf_traffic: 字典，定義每個 VNF type 所需流量
+          population_size: 種群規模
+          generations: 迭代代數
+        """
+        self.network_nodes = {node['id']: node for node in network_nodes}
         self.edges = edges
         self.sfc_requests = sfc_requests
         self.vnf_traffic = vnf_traffic
-        self.coyotes_per_group = coyotes_per_group
-        self.n_groups = n_groups
-        self.p_leave = p_leave
-        self.max_iter = max_iter
-        self.max_delay = max_delay
-        self.chain_lens = [len(r['chain']) for r in sfc_requests]
-        self.D = sum(self.chain_lens)
+        self.population_size = population_size
+        self.generations = generations
 
-    def dominates(self, u, v):
-        return np.all(u <= v) and np.any(u < v)
+        # 初始種群：每筆解為一個字典 { request_id: [node1, node2, ...] }
+        self.graph = {node_id: self.network_nodes[node_id]['neighbors'] for node_id in self.network_nodes}
+        self.population = np.array([self.generate_feasible_solution() for _ in range(population_size)])
 
-    def fast_non_dominated_sort(self, pop_objs):
-        N = len(pop_objs)
-        dom_count = np.zeros(N, dtype=int)
-        dominated = [[] for _ in range(N)]
-        fronts = []
-        f1 = []
-        for i in range(N):
-            for j in range(N):
-                if i == j:
+    def generate_feasible_solution(self):
+        """
+        集群初始化
+        """
+        solution = {}
+        for req in list(self.sfc_requests):
+            success = False
+            for _ in range(500):
+                try:
+                    solution[req['id']] = self.generate_feasible_assignment_for_request(req)
+                    success = True
+                    break
+                except FindingFailed:
+                    # 跳過此請求，繼續處理下一個請求
                     continue
-                if self.dominates(pop_objs[i], pop_objs[j]):
-                    dominated[i].append(j)
-                elif self.dominates(pop_objs[j], pop_objs[i]):
-                    dom_count[i] += 1
-            if dom_count[i] == 0:
-                f1.append(i)
-        fronts.append(f1)
-        i = 0
-        while fronts[i]:
-            next_f = []
-            for p in fronts[i]:
-                for q in dominated[p]:
-                    dom_count[q] -= 1
-                    if dom_count[q] == 0:
-                        next_f.append(q)
-            i += 1
-            fronts.append(next_f)
-        fronts.pop()
-        return fronts
+            if not success:
+                print(f"Request {req['id']} failed to generate a feasible assignment after 500 tries. Deleting it.")
+                self.sfc_requests.remove(req)
+        return solution
 
-    def encode(self, sol_dict):
-        arr = []
-        for req in self.sfc_requests:
-            arr.extend(sol_dict[req['id']])
-        return np.array(arr, dtype=int)
+    def generate_feasible_assignment_for_request(self, req):
+        """
+        對單筆請求，初始化一個可行的處理節點序列（不要求節點間相鄰）
+        """
+        chain = req['chain']
+        assignment = []
+        for i, vnf in enumerate(chain):
+            candidates = []
+            if i > 0:
+                for node_id, node in self.network_nodes.items():
+                    if vnf in node['vnf_types'] and bfs_shortest_path(self.graph, assignment[i - 1],
+                                                                      node_id) is not None:
+                        candidates.append(node_id)
+            else:
+                for node_id, node in self.network_nodes.items():
+                    if vnf in node['vnf_types']:
+                        candidates.append(node_id)
+            if not candidates:
+                raise FindingFailed(f"Request {req['id']} failed to generate a feasible assignment after 500 tries. "
+                                    f"Deleting it.")
+            else:
+                assignment.append(np.random.choice(candidates))
 
-    def decode(self, arr):
-        sol = {}
-        idx = 0
-        for req in self.sfc_requests:
-            L = len(req['chain'])
-            sol[req['id']] = arr[idx:idx + L].tolist()
-            idx += L
-        return sol
+        # # 利用 try/except 捕捉遞迴錯誤
+        # try:
+        #     assignment = self.repair_assignment_for_request(req, assignment)
+        # except RecursionError:
+        #     print(f"RecursionError occurred for req {req['id']}, skipping this request.")
+        #     # 遇到最大遞迴深度時，拋出自訂例外以便在外層跳過該請求
+        #     self.sfc_requests.remove(req)
+        return assignment
 
-    def multiobj(self, arr):
-        sol = self.decode(arr)
-        f1 = objective_load_balance(sol, self.network_nodes, self.sfc_requests, self.vnf_traffic)
-        f2 = average_objective_end_to_end_delay_bfs(sol, self.network_nodes, self.edges,
-                                                    self.vnf_traffic, self.sfc_requests)
-        f3 = objective_network_throughput(sol, self.edges, self.sfc_requests, self.vnf_traffic)
+    def repair_assignment_for_request(self, req, assignment):
+        """
+        檢查並修正一個 SFC 請求中的節點分配方案，
+        確保在每個位置上所選擇的節點能夠處理該位置所要求的 VNF 類型，
+        並且與前一個節點間是可連通的（使用 BFS 檢查）。
+        :param req: SFC 請求，包含 'chain'
+        :param assignment: 原始的節點分配列表
+        :return: 修正後的分配列表
+        """
+        chain = req['chain']
+        for i in range(len(assignment)):
+            valid = True
+            # 檢查當前節點是否具備處理對應 VNF 的能力
+            if chain[i] not in self.network_nodes[assignment[i]]['vnf_types']:
+                valid = False
+            # 如果不是第一個節點，還要檢查與前一個節點之間是否連通
+            if i > 0:
+                prev_node = assignment[i - 1]
+                # 使用 BFS 檢查從前一個節點到當前節點是否存在可行路徑
+                if bfs_shortest_path(self.graph, prev_node, assignment[i]) is None:
+                    valid = False
+            # 如果不符合要求，則重新選擇一個候選節點
+            if not valid:
+                if i == 0:
+                    # 第一個節點只需檢查處理能力
+                    candidates = [node_id for node_id, node in self.network_nodes.items()
+                                  if chain[i] in node['vnf_types']]
+                else:
+                    # 從所有能處理該 VNF 的節點中挑選出與前一個節點連通的候選
+                    candidates = [node_id for node_id, node in self.network_nodes.items()
+                                  if chain[i] in node['vnf_types'] and bfs_shortest_path(self.graph, assignment[i - 1],
+                                                                                         node_id) is not None]
+                if candidates:
+                    assignment[i] = np.random.choice(candidates)
+                else:
+                    assignment = self.generate_feasible_assignment_for_request(req)
+        return assignment
+
+    def compute_objectives(self, solution):
+        """
+        計算目標值
+        :param solution: 產生的解
+        :return: 回傳一個array包含三個目標值
+        """
+        f1 = objective_load_balance(solution, self.network_nodes, self.sfc_requests, self.vnf_traffic)
+        f2 = average_objective_end_to_end_delay_bfs(solution, self.network_nodes, self.edges, self.vnf_traffic,
+                                                    self.sfc_requests)
+        f3 = objective_network_throughput(solution, self.edges, self.sfc_requests, self.vnf_traffic)
         return np.array([f1, f2, f3])
 
-    def is_feasible(self, arr):
-        sol = self.decode(arr)
-        graph = {n: self.network_nodes[n]['neighbors'] for n in self.network_nodes}
-        flow = {e: 0.0 for e in self.edges}
-        for req in self.sfc_requests:
-            path = get_complete_path(sol[req['id']], graph)
-            dem = self.vnf_traffic[req['chain'][0]]
-            for i in range(len(path) - 1):
-                e = (path[i], path[i + 1])
-                if e in flow:
-                    flow[e] += dem
-                elif (e[1], e[0]) in flow:
-                    flow[(e[1], e[0])] += dem
-        return within_capacity(flow, self.edges)
+    # def objective_details(self, solution):
+    #     details = {}
+    #     # f1 詳細
+    #     node_loads = {node_id: 0.0 for node_id in self.network_nodes.keys()}
+    #     for req in self.sfc_requests:
+    #         demand = self.vnf_traffic[req['chain'][0]]
+    #         assignment = solution[req['id']]
+    #         for i, node_id in enumerate(assignment):
+    #             load_factor = self.network_nodes[node_id]['load_per_vnf'][req['chain'][i]]
+    #             node_loads[node_id] += demand * load_factor
+    #     details['node_loads'] = node_loads
+    #     details['f1_std'] = np.std(np.array(list(node_loads.values())))
+    #
+    #     # f2 詳細：對每筆 SFC，計算節點延遲、各段邊延遲及完整物理路徑
+    #     sfc_details = {}
+    #     total_delay = 0.0
+    #     graph = {node_id: self.network_nodes[node_id]['neighbors'] for node_id in self.network_nodes}
+    #     for req in self.sfc_requests:
+    #         demand = self.vnf_traffic[req['chain'][0]]
+    #         assignment = solution[req['id']]
+    #         node_delays = [self.network_nodes[assignment[i]]['processing_delay'][req['chain'][i]] for i in
+    #                        range(len(assignment))]
+    #         node_delay = sum(node_delays)
+    #         edge_delays = []
+    #         complete_path_segments = []
+    #         for i in range(len(assignment) - 1):
+    #             path = bfs_shortest_path(graph, assignment[i], assignment[i + 1])
+    #             if path is None:
+    #                 ed = 1e6
+    #                 path = [assignment[i], assignment[i + 1]]
+    #             else:
+    #                 ed = 0.0
+    #                 for j in range(len(path) - 1):
+    #                     n1, n2 = path[j], path[j + 1]
+    #                     if (n1, n2) in self.edges:
+    #                         cap = self.edges[(n1, n2)]
+    #                     elif (n2, n1) in self.edges:
+    #                         cap = self.edges[(n2, n1)]
+    #                     else:
+    #                         cap = 1e-6
+    #                     ed += demand / cap
+    #             edge_delays.append(ed)
+    #             complete_path_segments.append(path)
+    #         sfc_total = node_delay + sum(edge_delays)
+    #         # 串接各段完整路徑
+    #         complete_path = []
+    #         for idx, segment in enumerate(complete_path_segments):
+    #             if idx == 0:
+    #                 complete_path.extend(segment)
+    #             else:
+    #                 complete_path.extend(segment[1:])
+    #         sfc_details[req['id']] = {
+    #             'node_delays': node_delays,
+    #             'edge_delays': edge_delays,
+    #             'total_delay': sfc_total,
+    #             'complete_physical_path': complete_path
+    #         }
+    #         total_delay += sfc_total
+    #     details['sfc_delay_details'] = sfc_details
+    #     details['total_delay'] = total_delay
+    #     details['f2'] = total_delay
+    #
+    #     # f3 詳細：各邊流量利用率
+    #     graph_edges = {}
+    #     for (n1, n2) in self.edges:
+    #         graph_edges.setdefault(n1, []).append(n2)
+    #         graph_edges.setdefault(n2, []).append(n1)
+    #     edge_flow = {edge: 0.0 for edge in self.edges.keys()}
+    #     for req in self.sfc_requests:
+    #         demand = self.vnf_traffic[req['chain'][0]]
+    #         assignment = solution[req['id']]
+    #         for i in range(len(assignment) - 1):
+    #             path = bfs_shortest_path(graph_edges, assignment[i], assignment[i + 1])
+    #             if path is None:
+    #                 continue
+    #             for j in range(len(path) - 1):
+    #                 n1, n2 = path[j], path[j + 1]
+    #                 if (n1, n2) in self.edges:
+    #                     edge_flow[(n1, n2)] += demand
+    #                 elif (n2, n1) in self.edges:
+    #                     edge_flow[(n2, n1)] += demand
+    #     throughput_sum = 0.0
+    #     edge_utilization = {}
+    #     for edge, flow in edge_flow.items():
+    #         capacity = self.edges[edge]
+    #         utilization = flow / capacity
+    #         edge_utilization[edge] = {'flow': flow, 'capacity': capacity, 'utilization': utilization}
+    #         throughput_sum += utilization
+    #     epsilon = 1e-6
+    #     details['edge_utilization'] = edge_utilization
+    #     details['throughput_sum'] = throughput_sum
+    #     details['f3'] = 1 / (throughput_sum + epsilon)
+    #     return details
 
-    def repair(self, arr):
-        att = 0
-        while not self.is_feasible(arr) and att < self.max_delay:
-            sol = {}
-            for req in self.sfc_requests:
-                sol[req['id']] = [
-                    np.random.choice([nid for nid, node in self.network_nodes.items()
-                                      if vnf in node['vnf_types']])
-                    for vnf in req['chain']
-                ]
-            arr = self.encode(sol)
-            att += 1
-        return arr
+    def fast_non_dominated_sort(self, population_fitness):
+        num_solutions = len(population_fitness)
+        ranks = np.zeros(num_solutions, dtype=int)
+        domination_counts = np.zeros(num_solutions, dtype=int)
+        dominated = [[] for _ in range(num_solutions)]
+        front = []
+        for i in range(num_solutions):
+            for j in range(i + 1, num_solutions):
+                if np.all(population_fitness[i] <= population_fitness[j]) and np.any(
+                        population_fitness[i] < population_fitness[j]):
+                    dominated[i].append(j)
+                    domination_counts[j] += 1
+                elif np.all(population_fitness[j] <= population_fitness[i]) and np.any(
+                        population_fitness[j] < population_fitness[i]):
+                    dominated[j].append(i)
+                    domination_counts[i] += 1
+            if domination_counts[i] == 0:
+                ranks[i] = 0
+                front.append(i)
+        i = 0
+        while front:
+            next_front = []
+            for p in front:
+                for q in dominated[p]:
+                    domination_counts[q] -= 1
+                    if domination_counts[q] == 0:
+                        ranks[q] = i + 1
+                        next_front.append(q)
+            front = next_front
+            i += 1
+        return ranks
 
-    def nsco_initialize_population(self):
-        total = self.n_groups * self.coyotes_per_group
-        pop = np.zeros((total, self.D), dtype=int)
-        # 对于每个土狼，针对每个请求（链）和链上每个 VNF，从合法节点里随机选
-        for idx in range(total):
-            arr = []
-            for req in self.sfc_requests:
-                for vnf in req['chain']:
-                    candidates = [
-                        nid
-                        for nid, node in self.network_nodes.items()
-                        if vnf in node['vnf_types']
-                    ]
-                    arr.append(np.random.choice(candidates))
-            pop[idx] = np.array(arr, dtype=int)
-        idxs = np.random.permutation(total)
-        groups = idxs.reshape(self.n_groups, self.coyotes_per_group)
-        ages = np.zeros(total, dtype=int)
-        return pop, groups, ages
+    def non_dominated_sort_by_front(self, population_fitness):
+        ranks = self.fast_non_dominated_sort(population_fitness)
+        fronts = {}
+        for i, r in enumerate(ranks):
+            fronts.setdefault(r, []).append(i)
+        sorted_fronts = [fronts[r] for r in sorted(fronts.keys())]
+        return sorted_fronts
 
-    def _update_coyote(self, sol, alpha, cult):
-        # 隨機突變：從合法節點列表中替換單一基因
-        sol_dict = self.decode(sol)
-        req = np.random.choice(self.sfc_requests)
-        chain = req['chain']
-        pos = np.random.randint(len(chain))
-        vnf = chain[pos]
-        candidates = [nid for nid, node in self.network_nodes.items() if vnf in node['vnf_types']]
-        sol_dict[req['id']][pos] = np.random.choice(candidates)
-        return self.encode(sol_dict)
+    def weighted_euclidean_distance(self, sol1, sol2):
+        vec1 = []
+        vec2 = []
+        for req in sorted(self.sfc_requests, key=lambda x: x['id']):
+            assignment1 = sol1[req['id']]
+            assignment2 = sol2[req['id']]
+            vec1.extend([float(c) for c in assignment1])
+            vec2.extend([float(c) for c in assignment2])
+        return np.linalg.norm(np.array(vec1) - np.array(vec2))
 
-    def _crossover(self, sub):
-        d = self.D
-        P_s = 1 / d
-        P_a = (1 - P_s) / 2
-        father, mother = sub[np.random.choice(len(sub), 2, False)]
-        rnd = np.random.rand(d)
-        R = np.random.randint(2, size=d)
-        pup = np.empty(d, dtype=int)
-        j1, j2 = np.random.choice(d, 2, False)
-        for j in range(d):
-            if rnd[j] < P_s or j == j1:
-                pup[j] = father[j]
-            elif rnd[j] >= P_s + P_a or j == j2:
-                pup[j] = mother[j]
+    def selection(self):
+        pop = self.population.copy()
+        pop_fitness = np.array([self.compute_objectives(sol) for sol in pop])
+        fronts = self.non_dominated_sort_by_front(pop_fitness)
+        data_PR = []
+        total = 0
+        rank = 0
+        while rank < len(fronts) and total + len(fronts[rank]) <= 0.5 * self.population_size:
+            for idx in fronts[rank]:
+                data_PR.append((pop[idx], "Q1"))
+            total += len(fronts[rank])
+            rank += 1
+        if rank < len(fronts):
+            for idx in fronts[rank]:
+                if total < 1.5 * self.population_size:
+                    data_PR.append((pop[idx], "Q2"))
+                    total += 1
+                else:
+                    break
+        L = len(data_PR)
+        distance_matrix = np.zeros((L, L))
+        for i in range(L):
+            for j in range(i + 1, L):
+                d = self.weighted_euclidean_distance(data_PR[i][0], data_PR[j][0])
+                distance_matrix[i, j] = d
+                distance_matrix[j, i] = d
+        removed = set()
+        while L - len(removed) > self.population_size:
+            min_d = float('inf')
+            min_i, min_j = -1, -1
+            for i in range(L):
+                if i in removed:
+                    continue
+                for j in range(i + 1, L):
+                    if j in removed:
+                        continue
+                    if data_PR[i][1] == "Q1" and data_PR[j][1] == "Q1":
+                        continue
+                    if distance_matrix[i, j] < min_d:
+                        min_d = distance_matrix[i, j]
+                        min_i, min_j = i, j
+            if data_PR[min_i][1] == "Q2" and data_PR[min_j][1] == "Q2":
+                min_dist_i = float('inf')
+                min_dist_j = float('inf')
+                for k in range(L):
+                    if k in removed or k in [min_i, min_j]:
+                        continue
+                    min_dist_i = min(min_dist_i, distance_matrix[min_i, k])
+                    min_dist_j = min(min_dist_j, distance_matrix[min_j, k])
+                if min_dist_i < min_dist_j:
+                    removed.add(min_i)
+                else:
+                    removed.add(min_j)
+            elif data_PR[min_i][1] == "Q1" and data_PR[min_j][1] == "Q2":
+                removed.add(min_j)
+            elif data_PR[min_i][1] == "Q2" and data_PR[min_j][1] == "Q1":
+                removed.add(min_i)
             else:
-                pup[j] = R[j]
-        return self.repair(pup)
+                removed.add(min_j)
+        new_population = []
+        for i in range(L):
+            if i not in removed:
+                new_population.append(data_PR[i][0])
+        return np.array(new_population)
 
-    def nsco_update_group(self, pop, grp, ages):
-        sub = pop[grp]
-        objs = np.array([self.multiobj(s) for s in sub])
-        fronts = self.fast_non_dominated_sort(objs)
-        alpha = sub[np.random.choice(fronts[0])] if fronts[0] else sub[0]
-        cult = np.round(np.median(sub, axis=0)).astype(int)
-        for li, gi in enumerate(grp):
-            new_sol = self._update_coyote(sub[li], alpha, cult)
-            if self.dominates(self.multiobj(new_sol), objs[li]):
-                pop[gi], ages[gi] = new_sol, 0
-        pup = self._crossover(sub)
-        pup_obj = self.multiobj(pup)
-        for li, gi in enumerate(grp):
-            if self.dominates(pup_obj, objs[li]):
-                pop[gi], ages[gi] = pup, 0
-                break
-        return pop, ages
+    def crossover(self, parent1, parent2):
+        child1 = parent1.copy()
+        child2 = parent2.copy()
+        req_ids = list(parent1.keys())
+        if np.random.rand() < 0.9:
+            point = np.random.randint(1, len(req_ids))
+            for i in range(point, len(req_ids)):
+                rid = req_ids[i]
+                child1[rid], child2[rid] = child2[rid], child1[rid]
+        for req in self.sfc_requests:
+            try:
+                child1[req['id']] = self.repair_assignment_for_request(req, child1[req['id']])
+                child2[req['id']] = self.repair_assignment_for_request(req, child2[req['id']])
+            except FindingFailed as e:
+                print(f"Crossover failed: {e}")
+                child1 = parent1.copy()
+                child2 = parent2.copy()
+        return child1, child2
 
-    def nsco_coyote_exchange(self, pop, grps):
-        if self.n_groups < 2 or np.random.rand() >= self.p_leave:
-            return grps
-        g1, g2 = np.random.choice(self.n_groups, 2, False)
-        def get_last(g):
-            idxs = grps[g]
-            objs = np.array([self.multiobj(pop[i]) for i in idxs])
-            return self.fast_non_dominated_sort(objs)[-1]
-        l1, l2 = get_last(g1), get_last(g2)
-        size = max(len(l1), len(l2))
-        def expand(front, last):
-            if len(last) == size:
-                return last
-            prev = front[-2] if len(front) > 1 else last
-            return np.concatenate([last, np.random.choice(prev, size - len(last), True)])
-        f1 = self.fast_non_dominated_sort(np.array([self.multiobj(pop[i]) for i in grps[g1]]))
-        f2 = self.fast_non_dominated_sort(np.array([self.multiobj(pop[i]) for i in grps[g2]]))
-        p1 = expand(f1, l1)
-        p2 = expand(f2, l2)
-        swap1 = grps[g1][p1].copy()
-        swap2 = grps[g2][p2].copy()
-        grps[g1][p1], grps[g2][p2] = swap2, swap1
-        return grps
+    def mutation(self, solution):
+        sol = solution.copy()
+        req = np.random.choice(self.sfc_requests)
+        rid = req['id']
+        chain = req['chain']
+        assignment = sol[rid].copy()
+        pos = np.random.randint(0, len(assignment))
+        candidates = [node_id for node_id, node in self.network_nodes.items() if chain[pos] in node['vnf_types']]
+        if candidates:
+            assignment[pos] = np.random.choice(candidates)
+        try:
+            sol[rid] = self.repair_assignment_for_request(req, assignment)
+        except FindingFailed as e:
+            print(f"Mutation failed: {e}")
+            sol = solution.copy()
+        return sol
 
-    def run(self):
-        pop, grps, ages = self.nsco_initialize_population()
-        archive = []
-        for it in range(self.max_iter):
-            for g in range(self.n_groups):
-                pop, ages = self.nsco_update_group(pop, grps[g], ages)
-            grps = self.nsco_coyote_exchange(pop, grps)
-            ages += 1
-            fronts = self.fast_non_dominated_sort(np.array([self.multiobj(sol) for sol in pop]))
-            archive.append(pop[fronts[0].copy()])
-        final_front = pop[self.fast_non_dominated_sort(np.array([self.multiobj(sol) for sol in pop]))[0]]
-        return final_front, archive
+    def evolve(self):
+        # 用來存儲每輪的最佳前緣
+        generation_pareto_fronts = []
+
+        for _ in range(self.generations):
+            new_population = []
+            selected = self.selection()
+            pop_size = len(selected)
+            for i in range(0, pop_size, 2):
+                parent1 = selected[i]
+                parent2 = selected[(i + 1) % pop_size]
+                child1, child2 = self.crossover(parent1, parent2)
+                new_population.append(self.mutation(child1))
+                new_population.append(self.mutation(child2))
+            self.population = np.array(new_population[:self.population_size])
+
+            # 計算當前人口中每個解的目標值
+            pop = self.population.copy()
+            pop_fitness = np.array([self.compute_objectives(sol) for sol in pop])
+
+            # 對當前種群進行非支配排序，獲得最佳前緣
+            fronts = self.non_dominated_sort_by_front(pop_fitness)
+            current_pareto_front = [pop[idx] for idx in fronts[0]]
+
+            # 保存當前輪的最佳前緣
+            generation_pareto_fronts.append(np.array(current_pareto_front))
+
+        pop = self.population.copy()
+        pop_fitness = np.array([self.compute_objectives(sol) for sol in pop])
+        fronts = self.non_dominated_sort_by_front(pop_fitness)
+        pareto_front = [pop[idx] for idx in fronts[0]]
+        return np.array(pareto_front), generation_pareto_fronts
 
 
-# ----------------------------------------
-# 主程式：讀取、執行、輸出與視覺化
-# ----------------------------------------
+#############################################
+# 主程式設定與輸出
+#############################################
+
 if __name__ == "__main__":
+    os.makedirs("graph1", exist_ok=True)
+    os.makedirs("graph2", exist_ok=True)
+    os.makedirs("csv", exist_ok=True)
     for i in range(2, 3):
         os.makedirs(f"graph1/data{i}", exist_ok=True)
         os.makedirs(f"graph2/data{i}", exist_ok=True)
         os.makedirs(f"csv/data{i}", exist_ok=True)
-        for num in range(100, 105, 5):
+        for num in range(100, 105, 5):  # 包含15~100，間距5
             c2l = csv2list()
             network_nodes = c2l.nodes(f"../problem/data{i}/nodes/nodes_{num}.csv")
             edges = c2l.edges(f"../problem/data{i}/edges/edges_{num}.csv")
             vnf_traffic = c2l.vnfs(f"../problem/data{i}/vnfs/vnfs_{num}.csv")
             sfc_requests = c2l.demands("../problem/demands/demands.csv")
 
-            nsco = NSCO_SFC(network_nodes, edges, sfc_requests, vnf_traffic,
-                            coyotes_per_group=5, n_groups=5,
-                            p_leave=0.1, max_iter=50, max_delay=100)
+            population_size = 20
+            generations = 100
 
-            start = time.time()
-            pareto, archive = nsco.run()
-            end = time.time()
-            print(f"Data{i} Num{num} 執行時間: {end - start:.2f}s, Pareto 數: {len(pareto)}")
+            nsga4_sfc = NSGA4_SFC(network_nodes, edges, sfc_requests, vnf_traffic, population_size, generations)
 
-            rows = []
-            for sol in pareto:
-                obj = nsco.multiobj(sol)
-                rows.append({"Data": i, "Num": num,
-                             "LoadBalance": obj[0],
-                             "AvgDelay": obj[1],
-                             "Throughput": obj[2]})
-            df = pd.DataFrame(rows)
-            df.to_csv(f"csv/data{i}/nsco_sfc_results_{i}_{num}.csv", index=False)
+            start_time = time.time()
+            pareto_front, generation_pareto_fronts = nsga4_sfc.evolve()
+            end_time = time.time()
+            execution_time = end_time - start_time
+            print("程式執行時間：", execution_time, "秒")
+            print(f"最佳解 (Pareto Front) 共 {len(pareto_front)} 個：")
+            for sol in pareto_front:
+                print("-----")
+                print("各請求的處理節點序列與完整路徑：")
+                for req in sfc_requests:
+                    complete_path = get_complete_path(sol[req['id']], nsga4_sfc.graph)
+                    print(f"請求 {req['id']}：處理節點 = {sol[req['id']]}，完整路徑 = {complete_path}")
+            print("-----")
 
-            fig = plt.figure(figsize=(8, 6))
+            # 輸出各目標函數結果
+            for sol in pareto_front:
+                obj_vals = nsga4_sfc.compute_objectives(sol)
+                print("\n目標函數結果：")
+                print(f"節點負載均衡（標準差）： {obj_vals[0]:.4f}")
+                print(f"端到端延遲： {obj_vals[1]:.4f}")
+                print(f"網路吞吐量目標： {obj_vals[2]:.4f}")
+
+            # 收集所有解目標數據並以 DataFrame 彙總
+            solutions_data = []
+            for sol in pareto_front:
+                obj_vals = nsga4_sfc.compute_objectives(sol)
+                solutions_data.append({
+                    "Execution_time": str(execution_time),
+                    'Solution': str(sol),
+                    'LoadBalance': obj_vals[0],
+                    'Average Delay': obj_vals[1],
+                    'Throughput': obj_vals[2]
+                })
+            df = pd.DataFrame(solutions_data)
+            print("\n各目標函數的彙總數據：")
+            print(df)
+
+            # === 3D 散點圖：三個目標 ===
+            fig = plt.figure(figsize=(10, 8))
             ax = fig.add_subplot(111, projection='3d')
-            ax.scatter(df['LoadBalance'], df['AvgDelay'], df['Throughput'], marker='o')
+            ax.scatter(df['LoadBalance'], df['Average Delay'], df['Throughput'], c='blue', marker='o')
+            ax.set_xlabel('LoadBalance')
+            ax.set_ylabel('Average Delay')
+            ax.set_zlabel('Throughput')
+            ax.set_title('NSGA4 Pareto Front')
+            ax.set_box_aspect([1, 1, 1])
+            ax.view_init(elev=30, azim=45)
             plt.savefig(f"graph1/data{i}/graph1_{num}.png")
             plt.close()
+            # plt.show()
 
-            fig, axs = plt.subplots(1, 3, figsize=(15, 4))
-            axs[0].scatter(df['LoadBalance'], df['AvgDelay'], marker='o')
-            axs[1].scatter(df['LoadBalance'], df['Throughput'], marker='o')
-            axs[2].scatter(df['AvgDelay'], df['Throughput'], marker='o')
+            # === 二維散點圖：兩兩目標比較 ===
+            fig, axs = plt.subplots(1, 3, figsize=(18, 5))
+
+            # LoadBalance 與 Average Delay
+            axs[0].scatter(df['LoadBalance'], df['Average Delay'], c='red', marker='o')
+            axs[0].set_xlabel('LoadBalance')
+            axs[0].set_ylabel('Average Delay')
+            axs[0].set_title('NSGA4 LoadBalance vs Average Delay')
+
+            # LoadBalance 與 Throughput
+            axs[1].scatter(df['LoadBalance'], df['Throughput'], c='green', marker='o')
+            axs[1].set_xlabel('LoadBalance')
+            axs[1].set_ylabel('Throughput')
+            axs[1].set_title('NSGA4 LoadBalance vs Throughput')
+
+            # Average Delay 與 Throughput
+            axs[2].scatter(df['Average Delay'], df['Throughput'], c='purple', marker='o')
+            axs[2].set_xlabel('Average Delay')
+            axs[2].set_ylabel('Throughput')
+            axs[2].set_title('NSGA4 Average Delay vs Throughput')
+
             plt.tight_layout()
             plt.savefig(f"graph2/data{i}/graph2_{num}.png")
             plt.close()
+            # plt.show()
 
-            it_rows = []
-            for it, front in enumerate(archive, start=1):
-                for sol in front:
-                    obj = nsco.multiobj(sol)
-                    it_rows.append({"Data": i, "Num": num, "Iter": it,
-                                    "LoadBalance": obj[0],
-                                    "AvgDelay": obj[1],
-                                    "Throughput": obj[2]})
-            pd.DataFrame(it_rows).to_csv(f"csv/data{i}/nsco_sfc_archive_{i}_{num}.csv", index=False)
+            df.to_csv(f'csv/data{i}/NSGA4_solutions_data_{num}.csv', index=False)
+
+            generation_objectives_data = []
+            for each_sol in range(len(generation_pareto_fronts)):
+                obj_data = []
+                for sol in generation_pareto_fronts[each_sol]:
+                    obj_vals = nsga4_sfc.compute_objectives(sol)
+                    obj_data.append({
+                        'LoadBalance': obj_vals[0],
+                        'Average Delay': obj_vals[1],
+                        'Throughput': obj_vals[2]
+                    })
+                generation_objectives_data.append({
+                    "Generation": each_sol,
+                    "sol": obj_data
+                })
+            generation_df = pd.DataFrame(generation_objectives_data)
+            print(generation_df)
+            generation_df.to_csv(f'csv/NSGA4_generation_solutions_data{i}_{num}.csv', index=False)
