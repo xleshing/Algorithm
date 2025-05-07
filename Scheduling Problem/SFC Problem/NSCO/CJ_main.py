@@ -5,6 +5,8 @@ import time
 import os
 from collections import deque
 from csv2list import csv2list
+from collections import Counter
+
 
 class FindingFailed(Exception):
     """自訂例外，用來表示跳過當前請求"""
@@ -156,11 +158,13 @@ def within_capacity(edge_flow, edges):
             return False
     return True
 
+
 # --------------------------
 # NSCO for Knapsack Problem (改為多目標：效益與原狀態改動數)
 # --------------------------
-class NSCO_Algorithm:
-    def __init__(self, network_nodes, edges, sfc_requests, vnf_traffic, coyotes_per_group, coyotes_group, p_leave, generations):
+class NSCO_SFC:
+    def __init__(self, network_nodes, edges, sfc_requests, vnf_traffic, coyotes_per_group, coyotes_group, p_leave,
+                 generations):
         self.network_nodes = {node['id']: node for node in network_nodes}
         self.edges = edges
         self.sfc_requests = sfc_requests
@@ -172,7 +176,14 @@ class NSCO_Algorithm:
 
         # 初始種群：每筆解為一個字典 { request_id: [node1, node2, ...] }
         self.graph = {node_id: self.network_nodes[node_id]['neighbors'] for node_id in self.network_nodes}
-        self.population = np.array([self.generate_feasible_solution() for _ in range(population_size)])
+        # 1) 生成初始族群
+        self.population = np.array([self.generate_feasible_solution() for _ in range(self.coyotes_group*self.coyotes_per_group)])
+        # 2) 年齡初始化
+        self.ages = np.array([0] * len(self.population))
+        # 3) 分群：將索引 0..population_size-1 均分成 n_groups
+        indices = np.arange(len(self.population))
+        splits = np.array_split(indices, self.coyotes_group)
+        self.groups = np.vstack([grp for grp in splits])
 
     def generate_feasible_solution(self):
         """
@@ -217,13 +228,6 @@ class NSCO_Algorithm:
             else:
                 assignment.append(np.random.choice(candidates))
 
-        # # 利用 try/except 捕捉遞迴錯誤
-        # try:
-        #     assignment = self.repair_assignment_for_request(req, assignment)
-        # except RecursionError:
-        #     print(f"RecursionError occurred for req {req['id']}, skipping this request.")
-        #     # 遇到最大遞迴深度時，拋出自訂例外以便在外層跳過該請求
-        #     self.sfc_requests.remove(req)
         return assignment
 
     def repair_assignment_for_request(self, req, assignment):
@@ -322,368 +326,230 @@ class NSCO_Algorithm:
 
     def nsco_compute_cultural_tendency(self, sub_pop):
         """
-        文化傾向：以群內各解的中位數（取 0/1 後四捨五入）作為文化基因
+        文化基因：對每個 SFC 請求，在子群（list of dict）中做多數表決 (mode)。
+        sub_pop: [ {rid: [node, ...], ...}, {rid: [...], ...}, ... ]
+        回傳 dict { rid: [最常見的 node 列表], ... }
         """
-        return np.round(np.median(sub_pop, axis=0)).astype(int)
+        from collections import Counter
 
-    def nsco_update_coyote(self, coyote_idx, sub_pop, alpha_coyote, cultural_tendency):
-        """
-        差分移動更新單隻土狼（解結構：dict<req_id, [node_list]>）：
-         1. 隨機取出 qj1, qj2 兩隻「同群土狼索引」
-         2. 對每個 SFC 請求，把 alpha、qj1、文化、qj2 的路徑
-            轉成二元向量後做差分
-         3. 隨機選擇 delta1 或 delta2 作為候選，再反推 node list
-         4. 呼叫 repair_assignment_for_request 保證合法
-         5. 任一請求修復失敗即退回原解
-        """
-        # 1. pick two others
-        candidates = list(range(self.coyotes_per_group))
-        candidates.remove(coyote_idx)
-        qj1 = np.random.choice(candidates)
-        candidates.remove(qj1)
-        qj2 = np.random.choice(candidates)
+        culture = {}
+        # 列出所有請求 ID
+        all_rids = [req['id'] for req in self.sfc_requests]
 
-        new_sol = {}
+        for rid in all_rids:
+            # 收集子群中所有解在這個 rid 上的 assignment
+            assigns = [sol[rid] for sol in sub_pop]
+            # 用 tuple 來做 Counter
+            tup_list = [tuple(a) for a in assigns]
+            mode_tup, _ = Counter(tup_list).most_common(1)[0]
+            # 把最常見的 assignment 放進文化基因
+            culture[rid] = list(mode_tup)
+
+        return culture
+
+    def nsco_update_coyote(self, coyote_idx, sub_pop, alpha_coyote, cultural_tendency, generation):
+        """
+        差分移動 + 動態限額（適用 dict[rid→assignment] 結構）：
+          - 每代動態計算跳躍上限
+          - 同時從 α 與文化兩條差分路徑各自抽取不超過上限的 rid 更新
+          - 其餘 rid 保留現狀
+        """
+        current = sub_pop[coyote_idx]  # dict[rid → list[node]]
+        all_rids = list(current.keys())
+        L = len(all_rids)
+
+        # 1) 動態上限：線性衰減
+        base_jump_frac, base_culture_frac = 0.3, 0.3
+        t, T = generation, max(1, self.generations - 1)
+        max_jump = int(np.ceil(base_jump_frac * (1 - t / T) * L))
+        max_culture = int(np.ceil(base_culture_frac * (1 - t / T) * L))
+
+        # 2) 選兩隻同群土狼
+        idxs = list(range(len(sub_pop)))
+        idxs.remove(coyote_idx)
+        qj1, qj2 = np.random.choice(idxs, 2, replace=False)
+        other1 = sub_pop[qj1]
+        other2 = sub_pop[qj2]
+
+        # 3) 計算 diff keys
+        diff1 = [rid for rid in all_rids if alpha_coyote[rid] != other1[rid]]
+        diff2 = [rid for rid in all_rids if cultural_tendency[rid] != other2[rid]]
+
+        # 4) 抽樣 sel1, sel2
+        sel1 = list(np.random.choice(diff1, min(len(diff1), max_jump), replace=False)) if diff1 else []
+        available = [rid for rid in all_rids if rid not in sel1]
+        diff2_avail = [rid for rid in diff2 if rid in available]
+        sel2 = list(
+            np.random.choice(diff2_avail, min(len(diff2_avail), max_culture), replace=False)) if diff2_avail else []
+
+        # 5) 生成 new_sol，未動到的 key 自動保留
+        new_sol = {rid: list(current[rid]) for rid in all_rids}
+        for rid in sel1:
+            new_sol[rid] = list(other1[rid])
+        for rid in sel2:
+            new_sol[rid] = list(other2[rid])
+
+        # 6) 修復並驗證
         for req in self.sfc_requests:
             rid = req['id']
-
-            # --- 2. 轉成二元向量 ---
-            # 假設 self.num_nodes 定義了節點總數
-            def path_to_vec(path):
-                vec = np.zeros(len(self.network_nodes), dtype=int)
-                for node in path:
-                    vec[int(node)-1] = 1
-                return vec
-
-            vec_alpha = path_to_vec(alpha_coyote[rid])
-            vec_q1 = path_to_vec(sub_pop[qj1][rid])
-            vec_cult = path_to_vec(cultural_tendency[rid])
-            vec_q2 = path_to_vec(sub_pop[qj2][rid])
-
-            # 差分
-            delta1 = np.abs(vec_alpha - vec_q1)
-            delta2 = np.abs(vec_cult - vec_q2)
-
-            # --- 3. 隨機遮罩選 delta1 / delta2 ---
-            mask = np.random.rand(len(self.network_nodes)) < 0.5
-            cand_vec = np.where(mask, delta1, delta2)
-
-            # 反推成節點清單
-            cand_list = [str(i+1) for i, bit in enumerate(cand_vec) if bit > 0]
-
-            # --- 4. 呼叫 repair ---
             try:
-                new_sol[rid] = self.repair_assignment_for_request(req, cand_list)
+                new_assign = self.repair_assignment_for_request(req, new_sol[rid])
+                new_sol[rid] = new_assign
             except FindingFailed:
-                # 任何一條修復失敗，整隻土狼退回原始
-                return sub_pop[coyote_idx].copy()
+                return current.copy()
 
         return new_sol
 
-    # def nsco_crossover(self, sub_pop):
-    #     """
-    #     應用三段式交配公式：
-    #       pup_j = father_j   if rnd_j < P_s or j == j1
-    #               mother_j   if rnd_j >= P_s + P_a or j == j2
-    #               R_j        otherwise
-    #     其中 P_s = 1/d, P_a = (1 - P_s)/2
-    #     """
-    #     d = self.d
-    #     # 計算父代貢獻與突變機率
-    #     P_s = 1 / d
-    #     P_a = (1 - P_s) / 2
-    #
-    #     # 隨機選兩位父代
-    #     parents_idx = np.random.choice(self.coyotes_per_group, 2, replace=False)
-    #     father = sub_pop[parents_idx[0], :].copy()
-    #     mother = sub_pop[parents_idx[1], :].copy()
-    #
-    #     # 產生保證繼承位置 j1, j2
-    #     perm = np.random.permutation(d)
-    #     j1, j2 = perm[0], perm[1]
-    #
-    #     # 隨機數序列與隨機位點候選解
-    #     rnd = np.random.rand(d)
-    #     R = np.random.randint(2, size=d)
-    #
-    #     # 建立子代
-    #     pup = np.empty(d, dtype=int)
-    #     for j in range(d):
-    #         if rnd[j] < P_s or j == j1:
-    #             pup[j] = father[j]
-    #         elif rnd[j] >= P_s + P_a or j == j2:
-    #             pup[j] = mother[j]
-    #         else:
-    #             pup[j] = R[j]
-    #
-    #     # 修復為可行解後回傳
-    #     return self.repair(pup)
-    def nsco_crossover(self, sub_pop):
+    def nsco_crossover(self):
         """
-        使用三段式交配公式在 SFC 賦值格式上做 crossover：
-          pup_j = father_j   if rnd_j < P_s or j == j1
-                  mother_j   if rnd_j >= P_s + P_a or j == j2
-                  R_j        otherwise
-        其中 P_s = 1/num_nodes, P_a = (1 - P_s)/2
-        最後對每條請求呼叫 repair_assignment_for_request 保證合法。
+        三段式交配在 dict 結構上：
+         - mask 決定從 father/mother/mutation 拷貝哪些 req
+        在全局 population 中隨機選兩個父母
         """
-        N = len(self.network_nodes)
-        # 計算父代貢獻與突變機率
-        P_s = 1 / N
-        P_a = (1 - P_s) / 2
-
-        # 隨機選兩位父代（dict 格式）
-        parents_idx = np.random.choice(self.coyotes_per_group, 2, replace=False)
-        father = sub_pop[parents_idx[0]]
-        mother = sub_pop[parents_idx[1]]
-
-        # 產生保證繼承節點 j1, j2
+        N = len(self.sfc_requests)
+        Ps = 1 / N
+        Pa = (1 - Ps) / 2
+        # 全局隨機選兩個父母索引
+        parents = np.random.choice(len(self.population), 2, replace=False)
+        parent1 = self.population[parents[0]]
+        parent2 = self.population[parents[1]]
         perm = np.random.permutation(N)
         j1, j2 = perm[0], perm[1]
-
-        # 隨機數序列與隨機位點候選解
-        rnd = np.random.rand(N)
-        R = np.random.randint(2, size=N)
-
-        pup = {}
-        for req in self.sfc_requests:
+        child = {}
+        for idx, req in enumerate(self.sfc_requests):
             rid = req['id']
+            r = np.random.rand()
+            if r < Ps or idx == j1:
+                child[rid] = parent1[rid].copy()
+            elif r >= Ps + Pa or idx == j2:
+                child[rid] = parent2[rid].copy()
+            else:
+                try:
+                    child[rid] = self.generate_feasible_assignment_for_request(req)
+                except FindingFailed:
+                    child[rid] = parent1[rid].copy()
+        return child
 
-            # 將 path list 轉成長度為 N 的二元向量
-            def path_to_vec(path):
-                vec = np.zeros(N, dtype=int)
-                for node in path:
-                    vec[int(node)-1] = 1
-                return vec
-
-            vec_f = path_to_vec(father[rid])
-            vec_m = path_to_vec(mother[rid])
-
-            # 產生子代向量
-            child_vec = np.empty(N, dtype=int)
-            for j in range(N):
-                if rnd[j] < P_s or j == j1:
-                    child_vec[j] = vec_f[j]
-                elif rnd[j] >= P_s + P_a or j == j2:
-                    child_vec[j] = vec_m[j]
-                else:
-                    child_vec[j] = R[j]
-
-            # 轉回節點清單
-            cand_list = [str(i+1) for i, bit in enumerate(child_vec) if bit]
-
-            # 呼叫 repair 函式保證此請求合法
-            try:
-                pup[rid] = self.repair_assignment_for_request(req, cand_list)
-            except FindingFailed:
-                # 若任一請求修復失敗，退回父代 1 的完整解
-                return father.copy()
-
-        return pup
-
-    # def nsco_update_group(self, population, group_indices, population_age):
-    #     """
-    #     對一個群內進行更新：
-    #      (1) 依多目標評價及非支配排序取得群內 Pareto 前沿，
-    #          隨機選取其中一個作為領導者 (alpha) 並計算群文化傾向；
-    #      (2) 對每隻個體利用 nsco_update_coyote 嘗試更新，
-    #          若新解在多目標上支配原解則予以採納；
-    #      (3) 利用 nsco_crossover 產生 pup，
-    #          若其在多目標上支配群中部分解，則以年齡輔助替換其中年齡最高者。
-    #     """
-    #     sub_pop = population[group_indices, :].copy()
-    #     sub_objs = np.array([self.multiobj(x) for x in sub_pop])
-    #     sub_age = population_age[group_indices].copy()
-    #     n_pack = len(group_indices)
-    #
-    #     fronts = self.fast_non_dominated_sort(sub_objs)
-    #     if len(fronts[0]) > 0:
-    #         alpha_idx = np.random.choice(fronts[0])
-    #         alpha_coyote = sub_pop[alpha_idx, :].copy()
-    #     else:
-    #         alpha_coyote = sub_pop[0, :].copy()
-    #     cultural_tendency = self.nsco_compute_cultural_tendency(sub_pop)
-    #
-    #     for i in range(n_pack):
-    #         new_sol = self.nsco_update_coyote(i, sub_pop, alpha_coyote, cultural_tendency)
-    #         new_obj = self.multiobj(new_sol)
-    #         if self.dominates(new_obj, sub_objs[i]):
-    #             sub_pop[i, :] = new_sol
-    #             sub_objs[i] = new_obj
-    #             sub_age[i] = 0
-    #
-    #     if self.d > 1:
-    #         pup = self.nsco_crossover(sub_pop)
-    #         pup_obj = self.multiobj(pup)
-    #         dominated_indices = []
-    #         for i in range(n_pack):
-    #             if self.dominates(pup_obj, sub_objs[i]):
-    #                 dominated_indices.append(i)
-    #         if dominated_indices:
-    #             ages_candidates = sub_age[dominated_indices]
-    #             worst_idx_local = dominated_indices[np.argmax(ages_candidates)]
-    #             sub_pop[worst_idx_local, :] = pup
-    #             sub_objs[worst_idx_local] = pup_obj
-    #             sub_age[worst_idx_local] = 0
-    #
-    #     population[group_indices, :] = sub_pop
-    #     population_age[group_indices] = sub_age
-    #     return population, population_age
-    def nsco_update_group(self, population, group_indices, population_age):
+    def nsco_update_group(self, group_indices, generation):
         """
-        更新一個群：
-         1) 計算 sub_pop（list of dict）與 sub_objs
-         2) 選 alpha_coyote (dict) 與 cultural_tendency (dict)
-         3) 對每隻 coyote (dict) 呼叫 nsco_update_coyote，比較 obj，決定是否取代
-         4) 用 nsco_crossover 產生 pup (dict)，如果支配某些解，用年齡最老者替換
+        群內更新：
+         1) non-dominated sort -> alpha
+         2) update each via nsco_update_coyote
+         3) crossover -> pup -> replace worst
         """
-        # 1. 取出子群
-        sub_pop = [population[i] for i in group_indices]
-        sub_age = [population_age[i] for i in group_indices]
-        # 計算多目標值列表
+        sub_pop = [self.population[i] for i in group_indices]
+        sub_age = [self.ages[i] for i in group_indices]
         sub_objs = [self.compute_objectives(sol) for sol in sub_pop]
 
-        # 2. 非支配排序找 Pareto front
-        fronts = self.fast_non_dominated_sort(np.vstack(sub_objs))
-        if fronts and fronts[0]:
-            alpha_idx = np.random.choice(fronts[0])
-        else:
-            alpha_idx = 0
-        alpha_coyote = sub_pop[alpha_idx]
-        cultural_tendency = self.nsco_compute_cultural_tendency(sub_pop)
+        fronts = self.non_dominated_sort_by_front(np.vstack(sub_objs))
+        alpha_idx = fronts[0][np.random.randint(len(fronts[0]))]
+        alpha = sub_pop[alpha_idx]
 
-        n_pack = len(group_indices)
-        # 3. 個體更新
-        for local_i in range(n_pack):
-            orig = sub_pop[local_i]
-            new_sol = self.nsco_update_coyote(local_i, sub_pop, alpha_coyote, cultural_tendency)
+        culture = self.nsco_compute_cultural_tendency(sub_pop)
+
+        # update coyotes
+        for i in range(len(sub_pop)):
+            new_sol = self.nsco_update_coyote(i, sub_pop, alpha, culture, generation)
             new_obj = self.compute_objectives(new_sol)
-            # 如果支配原解，接納
-            if self.fast_non_dominated_sort(new_obj, sub_objs[local_i]):
-                sub_pop[local_i] = new_sol
-                sub_objs[local_i] = new_obj
-                sub_age[local_i] = 0
+            if np.all(new_obj <= sub_objs[i]) and np.any(new_obj < sub_objs[i]):
+                sub_pop[i], sub_objs[i], sub_age[i] = new_sol, new_obj, 0
 
-        # 4. 交配產生 pup
-        if self.d > 1:
-            pup = self.nsco_crossover(sub_pop)
+        # crossover replacement
+        if len(sub_pop) > 1:
+            pup = self.nsco_crossover()
             pup_obj = self.compute_objectives(pup)
-            # 找出被 pup 支配的子群成員 local 索引
-            dominated = [i for i in range(n_pack) if self.fast_non_dominated_sort(pup_obj, sub_objs[i])]
+            dominated = [i for i, obj in enumerate(sub_objs) if np.all(pup_obj <= obj) and np.any(pup_obj < obj)]
             if dominated:
-                # 從被支配者中選擇年齡最大的那位
                 ages = [sub_age[i] for i in dominated]
-                worst_local = dominated[np.argmax(ages)]
-                sub_pop[worst_local] = pup
-                sub_objs[worst_local] = pup_obj
-                sub_age[worst_local] = 0
+                worst = dominated[np.argmax(ages)]
+                sub_pop[worst], sub_objs[worst], sub_age[worst] = pup, pup_obj, 0
 
-        # 5. 寫回主 population 和 population_age
-        for local_i, global_i in enumerate(group_indices):
-            population[global_i] = sub_pop[local_i]
-            population_age[global_i] = sub_age[local_i]
+        # 回寫
+        for local, gi in enumerate(group_indices):
+            self.population[gi] = sub_pop[local]
+            self.ages[gi] = sub_age[local]
 
-        return population, population_age
-
-    # def nsco_coyote_exchange(self, groups):
-    #     """
-    #     依機率 p_leave（乘上 coyotes_per_group²）隨機抽取兩個不同群，互換各自一隻解
-    #     """
-    #     n_groups, coy_per_group = groups.shape
-    #     exchange_prob = self.p_leave * (self.coyotes_per_group ** 2)
-    #     if n_groups < 2:
-    #         return groups
-    #     if np.random.rand() < exchange_prob:
-    #         g1, g2 = np.random.choice(n_groups, size=2, replace=False)
-    #         c1 = np.random.randint(coy_per_group)
-    #         c2 = np.random.randint(coy_per_group)
-    #         tmp = groups[g1, c1]
-    #         groups[g1, c1] = groups[g2, c2]
-    #         groups[g2, c2] = tmp
-    #     return groups
-    def nsco_coyote_exchange(self, population, groups):
+    def nsco_coyote_exchange(self):
         """
         根據交換機率交換兩群的最後一層 Pareto 前緣解：
-        - exchange_prob = p_leave * (coyotes_per_group ** 2)
+        - exchange_prob = p_leave * (group_size ** 2)
         - 隨機選兩群 g1, g2；取各自子群最後一層 front；若數量不一致，以較多者為主，
           缺失的隨機從前一層補足；然後交換這些位置的索引。
         """
-        exchange_prob = self.p_leave * (self.coyotes_per_group ** 2)
-        # 機率不符或群數不足時不交換
-        if self.n_groups < 2 or np.random.rand() >= exchange_prob:
-            return groups
+        # 取得群數與每群大小
+        n_groups = self.groups.shape[0]
+        group_size = self.groups.shape[1]
+        exchange_prob = self.p_leave * (group_size ** 2)
+        # 機率符合或群數足夠時交換
+        if n_groups >= 2 or np.random.rand() < exchange_prob:
+            # 隨機選兩個群
+            g1, g2 = np.random.choice(n_groups, size=2, replace=False)
 
-        # 隨機選兩個群
-        g1, g2 = np.random.choice(self.n_groups, size=2, replace=False)
+            # 計算兩群的最後一層 Pareto 前緣索引
+            idxs1 = self.groups[g1]
+            pop_objs1 = np.array([self.compute_objectives(self.population[idx]) for idx in idxs1])
+            fronts1 = self.non_dominated_sort_by_front(pop_objs1)
+            last1 = fronts1[-1]
 
-        # 使用現有函式計算群內各前緣
-        idxs1 = groups[g1]
-        pop_objs1 = np.array([self.multiobj(population[idx]) for idx in idxs1])
-        fronts1 = self.fast_non_dominated_sort(pop_objs1)
+            idxs2 = self.groups[g2]
+            pop_objs2 = np.array([self.compute_objectives(self.population[idx]) for idx in idxs2])
+            fronts2 = self.non_dominated_sort_by_front(pop_objs2)
+            last2 = fronts2[-1]
 
-        idxs2 = groups[g2]
-        pop_objs2 = np.array([self.multiobj(population[idx]) for idx in idxs2])
-        fronts2 = self.fast_non_dominated_sort(pop_objs2)
+            # 確定交換大小
+            size = max(len(last1), len(last2))
 
-        last1 = fronts1[-1]
-        last2 = fronts2[-1]
+            # 補足不足的前緣解
+            def expand(fronts, last):
+                if len(last) == size:
+                    return last
+                prev = fronts[-2] if len(fronts) > 1 else last
+                extra = np.random.choice(prev, size - len(last), replace=True)
+                return np.concatenate([last, extra])
 
-        # 確定交換大小
-        size = max(len(last1), len(last2))
+            pos1 = expand(fronts1, last1)
+            pos2 = expand(fronts2, last2)
 
-        # 補足不足的前緣解
-        def expand(fronts, last):
-            if len(last) == size:
-                return last
-            prev = fronts[-2] if len(fronts) > 1 else last
-            extra = np.random.choice(prev, size - len(last), replace=True)
-            return np.concatenate([last, extra])
+            # 執行交換
+            swap1 = self.groups[g1][pos1].copy()
+            swap2 = self.groups[g2][pos2].copy()
+            self.groups[g1][pos1] = swap2
+            self.groups[g2][pos2] = swap1
 
-        pos1 = expand(fronts1, last1)
-        pos2 = expand(fronts2, last2)
-
-        # 執行交換
-        swap1 = groups[g1][pos1].copy()
-        swap2 = groups[g2][pos2].copy()
-        groups[g1][pos1] = swap2
-        groups[g2][pos2] = swap1
-
-        return groups
-
-    def NSCO_main(self):
+    def evolve(self):
         """
         NSCO 的主要演化流程：
-         1. 利用 nsco_initialize_population 生成初始族群與群體分配
-         2. 每代對各群依 nsco_update_group 更新，並進行群間交換及年齡增長
-         3. 每代全族群依多目標評價進行非支配排序，第一前沿作為全域最佳記錄
-         4. 最終回傳全域 Pareto 前沿及演化歷程 (archive)
+         1. 每代對各群依 nsco_update_group 更新，並進行群間交換及年齡增長
+         2. 每代全族群依多目標評價進行非支配排序，第一前沿作為全域最佳記錄
+         3. 最終回傳全域 Pareto 前沿及演化歷程 (generation_pareto_fronts)
         """
-        population, groups, population_age = self.nsco_initialize_population()
-        pop_objs = np.array([self.multiobj(x) for x in population])
-        fronts = self.fast_non_dominated_sort(pop_objs)
-        global_pf = fronts[0]
-        global_pf_solutions = population[global_pf, :].copy()
-        archive = [global_pf_solutions]
+        # 用來存儲每輪的最佳前緣
+        generation_pareto_fronts = []
 
-        for iteration in range(self.max_iter):
-            for g in range(self.n_groups):
-                group_indices = groups[g, :]
-                population, population_age = self.nsco_update_group(population, group_indices, population_age)
-            groups = self.nsco_coyote_exchange(population, groups)
-            population_age += 1
+        for gen in range(self.generations):
+            print(gen)
+            for g in range(self.coyotes_group):
+                group_indices = self.groups[g, :]
+                self.nsco_update_group(group_indices, gen)
+            self.nsco_coyote_exchange()
+            self.ages += 1
 
-            pop_objs = np.array([self.multiobj(x) for x in population])
-            fronts = self.fast_non_dominated_sort(pop_objs)
-            global_pf = fronts[0]
-            global_pf_solutions = population[global_pf, :].copy()
-            archive.append(global_pf_solutions)
-            # print(f"Iteration {iteration + 1}: Pareto Front size = {len(global_pf)}")
+            # 計算當前人口中每個解的目標值
+            pop = self.population.copy()
+            pop_fitness = np.array([self.compute_objectives(sol) for sol in self.population])
 
-        # 最終檢查：若全局前沿中無可行解，則以原始狀態作為解
-        feasible_front = [sol for sol in global_pf_solutions if self.is_feasible(sol)]
-        if len(feasible_front) == 0:
-            global_pf_solutions = np.array([self.original_status])
-        return global_pf_solutions, archive
+            # 對當前種群進行非支配排序，獲得最佳前緣
+            fronts = self.non_dominated_sort_by_front(pop_fitness)
+            current_pareto_front = [pop[idx] for idx in fronts[0]]
+
+            # 保存當前輪的最佳前緣
+            generation_pareto_fronts.append(np.array(current_pareto_front))
+
+        pop = self.population.copy()
+        pop_fitness = np.array([self.compute_objectives(sol) for sol in pop])
+        fronts = self.non_dominated_sort_by_front(pop_fitness)
+        pareto_front = [pop[idx] for idx in fronts[0]]
+        return np.array(pareto_front), generation_pareto_fronts
 
 
 # --------------------------
@@ -709,13 +575,24 @@ if __name__ == "__main__":
             vnf_traffic = c2l.vnfs(f"../problem/data{i}/vnfs/vnfs_{num}.csv")
             sfc_requests = c2l.demands("../problem/demands/demands.csv")
 
-            population_size = 20
+            coyotes_group = 5
+            coyotes_per_group = 5
+            p_leave = 0.005
             generations = 100
 
-            nsga4_sfc = NSGA4_SFC(network_nodes, edges, sfc_requests, vnf_traffic, population_size, generations)
+            nsco_sfc = NSCO_SFC(
+                network_nodes,
+                edges,
+                sfc_requests,
+                vnf_traffic,
+                coyotes_per_group,
+                coyotes_group,
+                p_leave,
+                generations
+            )
 
             start_time = time.time()
-            pareto_front, generation_pareto_fronts = nsga4_sfc.evolve()
+            pareto_front, generation_pareto_fronts = nsco_sfc.evolve()
             end_time = time.time()
             execution_time = end_time - start_time
             print("程式執行時間：", execution_time, "秒")
@@ -724,13 +601,13 @@ if __name__ == "__main__":
                 print("-----")
                 print("各請求的處理節點序列與完整路徑：")
                 for req in sfc_requests:
-                    complete_path = get_complete_path(sol[req['id']], nsga4_sfc.graph)
+                    complete_path = get_complete_path(sol[req['id']], nsco_sfc.graph)
                     print(f"請求 {req['id']}：處理節點 = {sol[req['id']]}，完整路徑 = {complete_path}")
             print("-----")
 
             # 輸出各目標函數結果
             for sol in pareto_front:
-                obj_vals = nsga4_sfc.compute_objectives(sol)
+                obj_vals = nsco_sfc.compute_objectives(sol)
                 print("\n目標函數結果：")
                 print(f"節點負載均衡（標準差）： {obj_vals[0]:.4f}")
                 print(f"端到端延遲： {obj_vals[1]:.4f}")
@@ -739,7 +616,7 @@ if __name__ == "__main__":
             # 收集所有解目標數據並以 DataFrame 彙總
             solutions_data = []
             for sol in pareto_front:
-                obj_vals = nsga4_sfc.compute_objectives(sol)
+                obj_vals = nsco_sfc.compute_objectives(sol)
                 solutions_data.append({
                     "Execution_time": str(execution_time),
                     'Solution': str(sol),
@@ -758,7 +635,7 @@ if __name__ == "__main__":
             ax.set_xlabel('LoadBalance')
             ax.set_ylabel('Average Delay')
             ax.set_zlabel('Throughput')
-            ax.set_title('NSGA4 Pareto Front')
+            ax.set_title('NSCO Pareto Front')
             ax.set_box_aspect([1, 1, 1])
             ax.view_init(elev=30, azim=45)
             plt.savefig(f"graph1/data{i}/graph1_{num}.png")
@@ -772,32 +649,32 @@ if __name__ == "__main__":
             axs[0].scatter(df['LoadBalance'], df['Average Delay'], c='red', marker='o')
             axs[0].set_xlabel('LoadBalance')
             axs[0].set_ylabel('Average Delay')
-            axs[0].set_title('NSGA4 LoadBalance vs Average Delay')
+            axs[0].set_title('NSCO LoadBalance vs Average Delay')
 
             # LoadBalance 與 Throughput
             axs[1].scatter(df['LoadBalance'], df['Throughput'], c='green', marker='o')
             axs[1].set_xlabel('LoadBalance')
             axs[1].set_ylabel('Throughput')
-            axs[1].set_title('NSGA4 LoadBalance vs Throughput')
+            axs[1].set_title('NSCO LoadBalance vs Throughput')
 
             # Average Delay 與 Throughput
             axs[2].scatter(df['Average Delay'], df['Throughput'], c='purple', marker='o')
             axs[2].set_xlabel('Average Delay')
             axs[2].set_ylabel('Throughput')
-            axs[2].set_title('NSGA4 Average Delay vs Throughput')
+            axs[2].set_title('NSCO Average Delay vs Throughput')
 
             plt.tight_layout()
             plt.savefig(f"graph2/data{i}/graph2_{num}.png")
             plt.close()
             # plt.show()
 
-            df.to_csv(f'csv/data{i}/NSGA4_solutions_data_{num}.csv', index=False)
+            df.to_csv(f'csv/data{i}/NSCO_solutions_data_{num}.csv', index=False)
 
             generation_objectives_data = []
             for each_sol in range(len(generation_pareto_fronts)):
                 obj_data = []
                 for sol in generation_pareto_fronts[each_sol]:
-                    obj_vals = nsga4_sfc.compute_objectives(sol)
+                    obj_vals = nsco_sfc.compute_objectives(sol)
                     obj_data.append({
                         'LoadBalance': obj_vals[0],
                         'Average Delay': obj_vals[1],
@@ -809,5 +686,4 @@ if __name__ == "__main__":
                 })
             generation_df = pd.DataFrame(generation_objectives_data)
             print(generation_df)
-            generation_df.to_csv(f'csv/NSGA4_generation_solutions_data{i}_{num}.csv', index=False)
-
+            generation_df.to_csv(f'csv/NSCO_generation_solutions_data{i}_{num}.csv', index=False)

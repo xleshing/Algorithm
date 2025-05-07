@@ -9,7 +9,7 @@ from mpl_toolkits.mplot3d import Axes3D  # for 3D projection
 # -------------------------------
 # Step 1. 讀取並解析 CSV 檔案
 # -------------------------------
-csv_path = 'csv/NSGA3_generation_solutions_data2_100.csv'
+csv_path = 'csv/NSCO_generation_solutions_data2_100.csv'
 df = pd.read_csv(csv_path)
 
 solutions_data = []
@@ -51,7 +51,7 @@ sc3d = ax3d.scatter(
 ax3d.set_xlabel('LoadBalance')
 ax3d.set_ylabel('Average Delay')
 ax3d.set_zlabel('Throughput')
-ax3d.set_title('NSGA3 3D Scatter')
+ax3d.set_title('NSCO 3D Scatter')
 cbar3d = fig.colorbar(sc3d, ax=ax3d, pad=0.1)
 cbar3d.set_label('Generation')
 plt.tight_layout()
