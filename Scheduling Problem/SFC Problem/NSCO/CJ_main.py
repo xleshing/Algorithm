@@ -162,6 +162,22 @@ def within_capacity(edge_flow, edges):
 # --------------------------
 # NSCO for Knapsack Problem (改為多目標：效益與原狀態改動數)
 # --------------------------
+def dict2list(population_dict: list) -> list:
+    sol_list = []
+    for coyote in population_dict:
+        for sol in coyote.values():
+            for s in sol:
+                sol_list.append(s)
+    return sol_list
+
+
+def list2dict(population_list: list, mask: list) -> dict:
+    sol_dict = {}
+    for m_index in range(len(mask)):
+        sol_dict[m_index + 1] = [population_list.pop(0) for _ in range(mask[m_index])]
+    return sol_dict
+
+
 class NSCO_SFC:
     def __init__(self, network_nodes, edges, sfc_requests, vnf_traffic, coyotes_per_group, coyotes_group, p_leave,
                  generations):
@@ -177,13 +193,22 @@ class NSCO_SFC:
         # 初始種群：每筆解為一個字典 { request_id: [node1, node2, ...] }
         self.graph = {node_id: self.network_nodes[node_id]['neighbors'] for node_id in self.network_nodes}
         # 1) 生成初始族群
-        self.population = np.array([self.generate_feasible_solution() for _ in range(self.coyotes_group*self.coyotes_per_group)])
+        self.population = np.array(
+            [self.generate_feasible_solution() for _ in range(self.coyotes_group * self.coyotes_per_group)])
+        print(self.sfc_requests)
         # 2) 年齡初始化
         self.ages = np.array([0] * len(self.population))
         # 3) 分群：將索引 0..population_size-1 均分成 n_groups
         indices = np.arange(len(self.population))
         splits = np.array_split(indices, self.coyotes_group)
         self.groups = np.vstack([grp for grp in splits])
+
+    def request_shap(self):
+        shap = []
+        for rs in self.sfc_requests:
+            for r in rs.values():
+                shap.append(len(r))
+        return shap
 
     def generate_feasible_solution(self):
         """
@@ -576,7 +601,7 @@ if __name__ == "__main__":
             sfc_requests = c2l.demands("../problem/demands/demands.csv")
 
             coyotes_group = 5
-            coyotes_per_group = 5
+            coyotes_per_group = 4
             p_leave = 0.005
             generations = 100
 
