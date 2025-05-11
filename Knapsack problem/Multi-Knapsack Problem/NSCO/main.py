@@ -325,20 +325,12 @@ def adjust_nodes(capacity, tolerance_value, jitter_tolerance, max_delay, namespa
             )
             best_pf, _ = algorithm.NSCO_main()
 
-            best_ind = sorted(range(len(best_pf)),
-                              key=lambda k: [change(sol, np.array(node_status)) for sol in best_pf][k])
+            best_pf_filter = [b_pf for b_pf in best_pf if abs((weight[0] / np.dot(node_status, values) * 100) - (weight[0] / np.dot(b_pf, values) * 100)) >= jitter_tolerance]
 
-            # best_ind_filter = [sol_ind for sol_ind in best_ind if
-            #                    capacity + tolerance_value >= 1 / load(best_pf[sol_ind], weight[0],
-            #                                                          values) - 1e-6 >= capacity - tolerance_value]
-            #
-            # if len(best_ind_filter) != 0:
-            #     best_sol = np.array(best_pf[best_ind_filter[0]])
-            # else:
-            #     best_sol = np.array(node_status)
-
-            if len(best_ind) != 0:
-                best_sol = np.array(best_pf[best_ind[0]])
+            if best_pf_filter:
+                best_ind = sorted(range(len(best_pf_filter)),
+                                  key=lambda k: [change(sol, np.array(node_status)) for sol in best_pf_filter][k])
+                best_sol = np.array(best_pf_filter[best_ind[0]])
             else:
                 best_sol = np.array(node_status)
 
