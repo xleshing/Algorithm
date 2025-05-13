@@ -9,7 +9,7 @@ from mpl_toolkits.mplot3d import Axes3D  # for 3D projection
 # -------------------------------
 # Step 1. 讀取並解析 CSV 檔案
 # -------------------------------
-csv_path = 'csv/NSCO_generation_solutions_data2_100.csv'
+csv_path = 'csv/NSCO_generation_solutions_data2_15.csv'
 df = pd.read_csv(csv_path)
 
 solutions_data = []

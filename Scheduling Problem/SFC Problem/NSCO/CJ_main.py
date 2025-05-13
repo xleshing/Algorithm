@@ -195,7 +195,6 @@ class NSCO_SFC:
         # 1) 生成初始族群
         self.population = np.array(
             [self.generate_feasible_solution() for _ in range(self.coyotes_group * self.coyotes_per_group)])
-        print(self.sfc_requests)
         # 2) 年齡初始化
         self.ages = np.array([0] * len(self.population))
         # 3) 分群：將索引 0..population_size-1 均分成 n_groups
@@ -552,7 +551,6 @@ class NSCO_SFC:
         generation_pareto_fronts = []
 
         for gen in range(self.generations):
-            print(gen)
             for g in range(self.coyotes_group):
                 group_indices = self.groups[g, :]
                 self.nsco_update_group(group_indices, gen)
@@ -593,7 +591,7 @@ if __name__ == "__main__":
         os.makedirs(f"graph1/data{i}", exist_ok=True)
         os.makedirs(f"graph2/data{i}", exist_ok=True)
         os.makedirs(f"csv/data{i}", exist_ok=True)
-        for num in range(100, 105, 5):  # 包含15~100，間距5
+        for num in range(15, 20, 5):  # 包含15~100，間距5
             c2l = csv2list()
             network_nodes = c2l.nodes(f"../problem/data{i}/nodes/nodes_{num}.csv")
             edges = c2l.edges(f"../problem/data{i}/edges/edges_{num}.csv")
