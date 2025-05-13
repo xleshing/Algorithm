@@ -335,7 +335,7 @@ def adjust_nodes(capacity, tolerance_value, jitter_tolerance, max_delay, namespa
                 best_sol = np.array(node_status)
 
             if best_sol.tolist() == node_status or abs((weight[0] / np.dot(node_status, values) * 100) - (weight[0] / np.dot(best_sol, values) * 100)) <= jitter_tolerance:
-                logger.debug(f"目前已是最佳或找不到最佳，保持原狀態{best_sol.tolist() == node_status, abs((weight[0] / np.dot(node_status, values) * 100) - (weight[0] / np.dot(best_sol, values) * 100))}")
+                logger.debug(f"目前已是最佳或找不到最佳，保持原狀態{best_sol.tolist() == node_status, abs((weight[0] / np.dot(node_status, values) * 100) - (weight[0] / np.dot(best_sol, values) * 100)), best_sol.tolist(), node_status}")
             else:
                 decision = best_sol
                 # 先開再關
