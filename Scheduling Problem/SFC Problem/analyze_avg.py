@@ -3,6 +3,7 @@ import re
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from functools import reduce
 
 def load_objectives(dir_path):
     """讀取一個 dataX 資料夾內所有 *_<node>.csv，回傳 dict[node] = ndarray((n_solutions,3))."""
@@ -46,39 +47,32 @@ def igd(reference, approx):
 
 # 主程式
 if __name__ == "__main__":
-    base3 = 'NSGA3/nsga3csv'
-    base4 = 'NSGA4/nsga4csv'
-    replicates = [f"data{i}" for i in range(1, 11)]
-
-    # 收集每次 replicate 算出的 IGD
-    igd3_all = {}
-    igd4_all = {}
+    base = ["NSCO/CSV", 'NSGA3/nsga3csv', 'NSGA4/nsga4csv']
+    replicates = [f"data{i}" for i in range(1, 5)]
+    igd_all = [{} for _ in range(len(base))]
 
     for rep in replicates:
-        d3 = load_objectives(os.path.join(base3, rep))
-        d4 = load_objectives(os.path.join(base4, rep))
-        nodes = sorted(set(d3.keys()) & set(d4.keys()))
+        d = [load_objectives(os.path.join(base_item, rep)) for base_item in base]
+        nodes = sorted(reduce(lambda a, b: a & b, (set(d_item.keys()) for d_item in d)))
 
         for node in nodes:
-            merged = np.vstack([d3[node], d4[node]])
+            merged = np.vstack([d_item[node] for d_item in d])
             ref = pareto_front(merged)
-            igd3_val = igd(ref, d3[node])
-            igd4_val = igd(ref, d4[node])
-            igd3_all.setdefault(node, []).append(igd3_val)
-            igd4_all.setdefault(node, []).append(igd4_val)
+            igd_val = [igd(ref, d_item[node]) for d_item in d]
+            for i in range(len(igd_all)):
+                igd_all[i].setdefault(node, []).append(igd_val[i])
 
     # 計算平均 IGD
-    nodes = sorted(igd3_all.keys())
-    igd3_mean = [np.mean(igd3_all[n]) for n in nodes]
-    igd4_mean = [np.mean(igd4_all[n]) for n in nodes]
+    nodes = sorted(igd_all[0].keys())
+    igd_mean = [[np.mean(igd_all_item[n]) for n in nodes] for igd_all_item in igd_all]
 
     # 繪圖
-    plt.figure(figsize=(8,5))
-    plt.plot(nodes, igd3_mean, marker='o', label='NSGA3 Avg IGD')
-    plt.plot(nodes, igd4_mean, marker='s', label='NSGA4 Avg IGD')
+    plt.figure(figsize=(8, 5))
+    for i in range(len(base)):
+        plt.plot(nodes, igd_mean[i], marker='o', label=f'{base[i].split("/")[0]} Avg IGD')
     plt.xlabel('Node Count')
     plt.ylabel('Mean IGD')
-    plt.title('NSGA3 vs NSGA4 Avg IGD Comparison')
+    plt.title('Avg IGD Comparison')
     plt.legend()
     plt.grid(True)
     plt.tight_layout()
