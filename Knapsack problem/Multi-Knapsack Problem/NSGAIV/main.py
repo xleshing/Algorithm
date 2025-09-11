@@ -48,17 +48,26 @@ class NSGA4_LoadBalancing:
                 raise ValueError(f"請求 {i} 無法分配到任何伺服器，請檢查參數設定！")
         return solution
 
+    # def compute_objective_usage(self, solution):
+    #     num_objectives = self.item_values.shape[1]
+    #     usage = np.zeros((self.num_servers, num_objectives))
+    #     for j in range(self.num_servers):
+    #         indices = (solution == j)
+    #         if np.any(indices):
+    #             usage[j] = np.sum(self.item_values[indices], axis=0)
+    #     if np.any(usage > self.server_capacities):
+    #         # 若超出容量則重新生成一個可行解
+    #         new_solution = self.generate_feasible_solution()
+    #         return self.compute_objective_usage(new_solution)
+    #     return usage
     def compute_objective_usage(self, solution):
+        """只計算 usage，不再偷偷替換解"""
         num_objectives = self.item_values.shape[1]
         usage = np.zeros((self.num_servers, num_objectives))
         for j in range(self.num_servers):
             indices = (solution == j)
             if np.any(indices):
                 usage[j] = np.sum(self.item_values[indices], axis=0)
-        if np.any(usage > self.server_capacities):
-            # 若超出容量則重新生成一個可行解
-            new_solution = self.generate_feasible_solution()
-            return self.compute_objective_usage(new_solution)
         return usage
 
     def fitness(self, solution):
@@ -107,35 +116,121 @@ class NSGA4_LoadBalancing:
         sorted_fronts = [fronts[r] for r in sorted(fronts.keys())]
         return sorted_fronts
 
+    # def weighted_euclidean_distance(self, sol1, sol2):
+    #     # 以標準歐氏距離計算兩個解的距離
+    #     return np.linalg.norm(sol1 - sol2)
     def weighted_euclidean_distance(self, sol1, sol2):
-        # 以標準歐氏距離計算兩個解的距離
-        return np.linalg.norm(sol1 - sol2)
+        """改用負載率向量計算距離"""
+        u1 = self.compute_objective_usage(sol1) / self.server_capacities
+        u2 = self.compute_objective_usage(sol2) / self.server_capacities
+        return np.linalg.norm(u1.flatten() - u2.flatten())
 
-    def selection(self):
+    # def selection(self):
+    #     """
+    #     NSGA4 的選擇操作：
+    #      1. 將當前種群（父代）合併（這裡僅使用當前種群作為集合）
+    #      2. 計算每個解的目標值，進行非支配排序
+    #      3. 按順序將前沿解加入中間集合 data_PR，直到：
+    #           - 前幾前沿全部加入後總數 ≤ 0.5 * population_size，並標記為 "Q1"
+    #           - 接下來加入的標記為 "Q2"，直到中間集合規模達到 1.5 * population_size
+    #      4. 計算 data_PR 中每對解的加權歐氏距離，然後通過聚類移除法（cluster removal）逐步刪除解，
+    #         直到剩下 population_size 個解
+    #      5. 返回這些解作為下一代種群
+    #     """
+    #     pop = self.population.copy()
+    #     pop_fitness = np.array([self.fitness(sol) for sol in pop])
+    #     fronts = self.non_dominated_sort_by_front(pop_fitness)
+    #     data_PR = []  # 每個元素為 (solution, subarea)，subarea 為 "Q1" 或 "Q2"
+    #     total = 0
+    #     rank = 0
+    #     # 將前沿解全部加入，直到總數不超過 0.5 * population_size，標記為 Q1
+    #     while rank < len(fronts) and total + len(fronts[rank]) <= 0.5 * self.population_size:
+    #         for idx in fronts[rank]:
+    #             data_PR.append((pop[idx], "Q1"))
+    #         total += len(fronts[rank])
+    #         rank += 1
+    #     # 從下一個前沿中加入解，標記為 Q2，直到集合大小達到 1.5 * population_size
+    #     if rank < len(fronts):
+    #         for idx in fronts[rank]:
+    #             if total < 1.5 * self.population_size:
+    #                 data_PR.append((pop[idx], "Q2"))
+    #                 total += 1
+    #             else:
+    #                 break
+    #
+    #     L = len(data_PR)
+    #     # 計算 data_PR 中每對解之間的距離矩陣
+    #     distance_matrix = np.zeros((L, L))
+    #     for i in range(L):
+    #         for j in range(i + 1, L):
+    #             d = self.weighted_euclidean_distance(data_PR[i][0], data_PR[j][0])
+    #             distance_matrix[i, j] = d
+    #             distance_matrix[j, i] = d
+    #
+    #     removed = set()
+    #     # 當剩餘解數大於 population_size 時，進行聚類移除
+    #     while L - len(removed) > self.population_size:
+    #         min_d = float('inf')
+    #         min_i, min_j = -1, -1
+    #         for i in range(L):
+    #             if i in removed:
+    #                 continue
+    #             for j in range(i + 1, L):
+    #                 if j in removed:
+    #                     continue
+    #                 # 只考慮至少有一個屬於 Q2 的對
+    #                 if data_PR[i][1] == "Q1" and data_PR[j][1] == "Q1":
+    #                     continue
+    #                 if distance_matrix[i, j] < min_d:
+    #                     min_d = distance_matrix[i, j]
+    #                     min_i, min_j = i, j
+    #         # 判斷應刪除哪個解
+    #         if data_PR[min_i][1] == "Q2" and data_PR[min_j][1] == "Q2":
+    #             # 分別計算兩個解與其他未刪除解的最小距離
+    #             min_dist_i = float('inf')
+    #             min_dist_j = float('inf')
+    #             for k in range(L):
+    #                 if k in removed or k == min_i or k == min_j:
+    #                     continue
+    #                 min_dist_i = min(min_dist_i, distance_matrix[min_i, k])
+    #                 min_dist_j = min(min_dist_j, distance_matrix[min_j, k])
+    #             if min_dist_i < min_dist_j:
+    #                 removed.add(min_i)
+    #             else:
+    #                 removed.add(min_j)
+    #         elif data_PR[min_i][1] == "Q1" and data_PR[min_j][1] == "Q2":
+    #             removed.add(min_j)
+    #         elif data_PR[min_i][1] == "Q2" and data_PR[min_j][1] == "Q1":
+    #             removed.add(min_i)
+    #         else:
+    #             removed.add(min_j)
+    #
+    #     new_population = []
+    #     for i in range(L):
+    #         if i not in removed:
+    #             new_population.append(data_PR[i][0])
+    #     return np.array(new_population)
+    def selection(self, parents=None, children=None):
         """
-        NSGA4 的選擇操作：
-         1. 將當前種群（父代）合併（這裡僅使用當前種群作為集合）
-         2. 計算每個解的目標值，進行非支配排序
-         3. 按順序將前沿解加入中間集合 data_PR，直到：
-              - 前幾前沿全部加入後總數 ≤ 0.5 * population_size，並標記為 "Q1"
-              - 接下來加入的標記為 "Q2"，直到中間集合規模達到 1.5 * population_size
-         4. 計算 data_PR 中每對解的加權歐氏距離，然後通過聚類移除法（cluster removal）逐步刪除解，
-            直到剩下 population_size 個解
-         5. 返回這些解作為下一代種群
+        改為父 + 子合併後再做 NSGA4 selection
         """
-        pop = self.population.copy()
+        if parents is None:  # 第一次就直接用 population
+            pop = self.population.copy()
+        else:
+            pop = np.concatenate([parents, children])
+
         pop_fitness = np.array([self.fitness(sol) for sol in pop])
         fronts = self.non_dominated_sort_by_front(pop_fitness)
-        data_PR = []  # 每個元素為 (solution, subarea)，subarea 為 "Q1" 或 "Q2"
+
+        data_PR = []
         total = 0
         rank = 0
-        # 將前沿解全部加入，直到總數不超過 0.5 * population_size，標記為 Q1
         while rank < len(fronts) and total + len(fronts[rank]) <= 0.5 * self.population_size:
             for idx in fronts[rank]:
                 data_PR.append((pop[idx], "Q1"))
             total += len(fronts[rank])
             rank += 1
-        # 從下一個前沿中加入解，標記為 Q2，直到集合大小達到 1.5 * population_size
+
         if rank < len(fronts):
             for idx in fronts[rank]:
                 if total < 1.5 * self.population_size:
@@ -145,7 +240,6 @@ class NSGA4_LoadBalancing:
                     break
 
         L = len(data_PR)
-        # 計算 data_PR 中每對解之間的距離矩陣
         distance_matrix = np.zeros((L, L))
         for i in range(L):
             for j in range(i + 1, L):
@@ -154,36 +248,22 @@ class NSGA4_LoadBalancing:
                 distance_matrix[j, i] = d
 
         removed = set()
-        # 當剩餘解數大於 population_size 時，進行聚類移除
         while L - len(removed) > self.population_size:
             min_d = float('inf')
             min_i, min_j = -1, -1
             for i in range(L):
-                if i in removed:
-                    continue
+                if i in removed: continue
                 for j in range(i + 1, L):
-                    if j in removed:
-                        continue
-                    # 只考慮至少有一個屬於 Q2 的對
+                    if j in removed: continue
                     if data_PR[i][1] == "Q1" and data_PR[j][1] == "Q1":
                         continue
                     if distance_matrix[i, j] < min_d:
                         min_d = distance_matrix[i, j]
                         min_i, min_j = i, j
-            # 判斷應刪除哪個解
             if data_PR[min_i][1] == "Q2" and data_PR[min_j][1] == "Q2":
-                # 分別計算兩個解與其他未刪除解的最小距離
-                min_dist_i = float('inf')
-                min_dist_j = float('inf')
-                for k in range(L):
-                    if k in removed or k == min_i or k == min_j:
-                        continue
-                    min_dist_i = min(min_dist_i, distance_matrix[min_i, k])
-                    min_dist_j = min(min_dist_j, distance_matrix[min_j, k])
-                if min_dist_i < min_dist_j:
-                    removed.add(min_i)
-                else:
-                    removed.add(min_j)
+                min_dist_i = min(distance_matrix[min_i, k] for k in range(L) if k not in removed and k != min_i)
+                min_dist_j = min(distance_matrix[min_j, k] for k in range(L) if k not in removed and k != min_j)
+                removed.add(min_i if min_dist_i < min_dist_j else min_j)
             elif data_PR[min_i][1] == "Q1" and data_PR[min_j][1] == "Q2":
                 removed.add(min_j)
             elif data_PR[min_i][1] == "Q2" and data_PR[min_j][1] == "Q1":
@@ -191,10 +271,7 @@ class NSGA4_LoadBalancing:
             else:
                 removed.add(min_j)
 
-        new_population = []
-        for i in range(L):
-            if i not in removed:
-                new_population.append(data_PR[i][0])
+        new_population = [data_PR[i][0] for i in range(L) if i not in removed]
         return np.array(new_population)
 
     def crossover(self, parent1, parent2):
@@ -247,38 +324,62 @@ class NSGA4_LoadBalancing:
                 return self.generate_feasible_solution()
         return solution
 
+    # def evolve(self):
+    #     # 用來存儲每輪的最佳前緣
+    #     generation_pareto_fronts = []
+    #
+    #     for _ in range(self.generations):
+    #         new_population = []
+    #         # NSGA4 選擇操作取得下一代候選解
+    #         selected = self.selection()
+    #         pop_size = len(selected)
+    #         for i in range(0, pop_size, 2):
+    #             parent1 = selected[i]
+    #             parent2 = selected[(i + 1) % pop_size]
+    #             child1, child2 = self.crossover(parent1, parent2)
+    #             new_population.append(self.mutation(child1))
+    #             new_population.append(self.mutation(child2))
+    #         self.population = np.array(new_population[:self.population_size])
+    #
+    #         # 計算當前人口中每個解的目標值
+    #         pop = self.population.copy()
+    #         pop_fitness = np.array([self.fitness(sol) for sol in pop])
+    #
+    #         # 對當前種群進行非支配排序，獲得最佳前緣
+    #         fronts = self.non_dominated_sort_by_front(pop_fitness)
+    #         current_pareto_front = [pop[idx] for idx in fronts[0]]
+    #
+    #         # 保存當前輪的最佳前緣
+    #         generation_pareto_fronts.append(np.array(current_pareto_front))
+    #     # 演化結束後，返回最終種群中的 Pareto 前沿（非支配解）
+    #     pop = self.population.copy()
+    #     pop_fitness = np.array([self.fitness(sol) for sol in pop])
+    #     fronts = self.non_dominated_sort_by_front(pop_fitness)
+    #     pareto_front = [pop[idx] for idx in fronts[0]]
+    #     return np.array(pareto_front), generation_pareto_fronts
     def evolve(self):
-        # 用來存儲每輪的最佳前緣
         generation_pareto_fronts = []
+        parents = self.population.copy()
 
         for _ in range(self.generations):
-            new_population = []
-            # NSGA4 選擇操作取得下一代候選解
-            selected = self.selection()
-            pop_size = len(selected)
-            for i in range(0, pop_size, 2):
-                parent1 = selected[i]
-                parent2 = selected[(i + 1) % pop_size]
-                child1, child2 = self.crossover(parent1, parent2)
-                new_population.append(self.mutation(child1))
-                new_population.append(self.mutation(child2))
-            self.population = np.array(new_population[:self.population_size])
+            children = []
+            for i in range(0, len(parents), 2):
+                p1, p2 = parents[i], parents[(i + 1) % len(parents)]
+                c1, c2 = self.crossover(p1, p2)
+                children.append(self.mutation(c1))
+                children.append(self.mutation(c2))
+            children = np.array(children[:self.population_size])
 
-            # 計算當前人口中每個解的目標值
-            pop = self.population.copy()
-            pop_fitness = np.array([self.fitness(sol) for sol in pop])
+            parents = self.selection(parents, children)
 
-            # 對當前種群進行非支配排序，獲得最佳前緣
+            pop_fitness = np.array([self.fitness(sol) for sol in parents])
             fronts = self.non_dominated_sort_by_front(pop_fitness)
-            current_pareto_front = [pop[idx] for idx in fronts[0]]
-
-            # 保存當前輪的最佳前緣
+            current_pareto_front = [parents[idx] for idx in fronts[0]]
             generation_pareto_fronts.append(np.array(current_pareto_front))
-        # 演化結束後，返回最終種群中的 Pareto 前沿（非支配解）
-        pop = self.population.copy()
-        pop_fitness = np.array([self.fitness(sol) for sol in pop])
+
+        pop_fitness = np.array([self.fitness(sol) for sol in parents])
         fronts = self.non_dominated_sort_by_front(pop_fitness)
-        pareto_front = [pop[idx] for idx in fronts[0]]
+        pareto_front = [parents[idx] for idx in fronts[0]]
         return np.array(pareto_front), generation_pareto_fronts
 
 
@@ -286,10 +387,10 @@ class NSGA4_LoadBalancing:
 # 定義 7 個目標函數
 #############################################
 
-def objective_latency(solution, usage, item_values, server_capacities):
-    # 請求處理延遲最小化：用各伺服器負載率的最大值近似
-    load_ratios = usage.flatten() / server_capacities.flatten()
-    return np.sum(load_ratios)
+# def objective_latency(solution, usage, item_values, server_capacities):
+#     # 請求處理延遲最小化：用各伺服器負載率的最大值近似
+#     load_ratios = usage.flatten() / server_capacities.flatten()
+#     return np.sum(load_ratios)
 
 
 # def objective_throughput(solution, usage, item_values, server_capacities):
@@ -297,7 +398,13 @@ def objective_latency(solution, usage, item_values, server_capacities):
 #     load_ratios = usage.flatten() / server_capacities.flatten()
 #     throughput = np.sum(1.0 / (1 + load_ratios))
 #     return -throughput
+def objective_latency(solution, usage, item_values, server_capacities):
+    load_ratios = usage.flatten()/server_capacities.flatten()
+    return np.max(load_ratios)  # 最大負載率
 
+def objective_cost(solution, usage, item_values, server_capacities):
+    load_ratios = usage.flatten()/server_capacities.flatten()
+    return np.sum(load_ratios**2)  # 平方和
 
 def objective_resource_utilization(solution, usage, item_values, server_capacities):
     # 資源利用率最優化：使各伺服器負載率分布更均衡（標準差最小）
@@ -312,10 +419,10 @@ def objective_resource_utilization(solution, usage, item_values, server_capaciti
 #     return np.sum(errors)
 
 
-def objective_cost(solution, usage, item_values, server_capacities):
-    # 成本最小化：簡單以各伺服器負載率總和近似
-    load_ratios = usage.flatten() / server_capacities.flatten()
-    return np.sum(load_ratios)
+# def objective_cost(solution, usage, item_values, server_capacities):
+#     # 成本最小化：簡單以各伺服器負載率總和近似
+#     load_ratios = usage.flatten() / server_capacities.flatten()
+#     return np.sum(load_ratios)
 
 #
 # def objective_availability(solution, usage, item_values, server_capacities):
@@ -337,8 +444,8 @@ def objective_cost(solution, usage, item_values, server_capacities):
 #############################################
 if __name__ == "__main__":
     # 設定問題參數：假設每個請求負載隨機在 1 到 4 之間，伺服器容量在 50 到 60 之間
-    num_servers = 5
-    num_requests = 50
+    num_servers = 12
+    num_requests = 250
     population_size = 20
     generations = 100
 
@@ -399,9 +506,9 @@ if __name__ == "__main__":
         for sol in generation_pareto_fronts[each_sol]:
             obj_vals = nsga4.fitness(sol)
             obj_data.append({
-                'LoadBalance': obj_vals[0],
-                'Average Delay': obj_vals[1],
-                'Cost': obj_vals[2],
+                'LoadBalance': float(obj_vals[0]),
+                'Average Delay': float(obj_vals[1]),
+                'Cost': float(obj_vals[2]),
             })
         generation_objectives_data.append({
             "Generation": each_sol,
