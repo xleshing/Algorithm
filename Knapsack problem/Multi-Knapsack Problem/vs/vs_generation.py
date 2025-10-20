@@ -52,7 +52,7 @@ objectives = [objective_resource_utilization, objective_latency, objective_cost]
 
 # 共同的資料
 num_servers   = 15
-num_requests  = 10
+num_requests  = 150
 population    = 20
 generations   = 100
 item_values   = np.random.randint(1, 5, (num_requests, 1))

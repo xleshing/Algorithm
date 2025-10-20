@@ -1,0 +1,1013 @@
+Start: Sun Oct 19 05:26:12 PM UTC 2025
+
+===== Testing q=100, estimated c=50 (prev_avg=0.33s) =====
+Start time: Sun Oct 19 05:26:12 PM UTC 2025
+
+Summary:
+  Total:	600.4624 secs
+  Slowest:	3.1706 secs
+  Fastest:	0.0142 secs
+  Average:	0.3482 secs
+  Requests/sec:	143.5261
+  
+  Total data:	90404918 bytes
+  Size/request:	1049 bytes
+
+Response time histogram:
+  0.014 [1]	|
+  0.330 [71817]	|■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■
+  0.645 [13]	|
+  0.961 [10]	|
+  1.277 [19]	|
+  1.592 [414]	|
+  1.908 [10317]	|■■■■■■
+  2.224 [3160]	|■■
+  2.539 [410]	|
+  2.855 [17]	|
+  3.171 [4]	|
+
+
+Latency distribution:
+  10% in 0.0288 secs
+  25% in 0.0387 secs
+  50% in 0.0535 secs
+  75% in 0.0761 secs
+  90% in 1.7838 secs
+  95% in 1.8831 secs
+  99% in 2.1212 secs
+
+Details (average, fastest, slowest):
+  DNS+dialup:	0.0000 secs, 0.0142 secs, 3.1706 secs
+  DNS-lookup:	0.0000 secs, 0.0000 secs, 0.0050 secs
+  req write:	0.0000 secs, 0.0000 secs, 0.0004 secs
+  resp wait:	0.3482 secs, 0.0142 secs, 3.1706 secs
+  resp read:	0.0000 secs, 0.0000 secs, 0.0005 secs
+
+Status code distribution:
+  [200]	86182 responses
+End time: Sun Oct 19 05:36:13 PM UTC 2025
+
+Sleeping 600s...
+
+===== Testing q=150, estimated c=63 (prev_avg=0.3482s) =====
+Start time: Sun Oct 19 05:46:13 PM UTC 2025
+
+Summary:
+  Total:	600.5610 secs
+  Slowest:	4.8293 secs
+  Fastest:	0.0137 secs
+  Average:	0.4478 secs
+  Requests/sec:	140.6268
+  
+  Total data:	88593295 bytes
+  Size/request:	1049 bytes
+
+Response time histogram:
+  0.014 [1]	|
+  0.495 [70377]	|■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■
+  0.977 [22]	|
+  1.458 [20]	|
+  1.940 [24]	|
+  2.421 [8458]	|■■■■■
+  2.903 [4679]	|■■■
+  3.385 [709]	|
+  3.866 [145]	|
+  4.348 [17]	|
+  4.829 [3]	|
+
+
+Latency distribution:
+  10% in 0.0279 secs
+  25% in 0.0376 secs
+  50% in 0.0521 secs
+  75% in 0.0739 secs
+  90% in 2.3475 secs
+  95% in 2.4652 secs
+  99% in 2.9171 secs
+
+Details (average, fastest, slowest):
+  DNS+dialup:	0.0000 secs, 0.0137 secs, 4.8293 secs
+  DNS-lookup:	0.0000 secs, 0.0000 secs, 0.0049 secs
+  req write:	0.0000 secs, 0.0000 secs, 0.0004 secs
+  resp wait:	0.4477 secs, 0.0136 secs, 4.8293 secs
+  resp read:	0.0000 secs, 0.0000 secs, 0.0004 secs
+
+Status code distribution:
+  [200]	84455 responses
+End time: Sun Oct 19 05:56:14 PM UTC 2025
+
+Sleeping 600s...
+
+===== Testing q=200, estimated c=108 (prev_avg=0.4478s) =====
+Start time: Sun Oct 19 06:06:14 PM UTC 2025
+
+Summary:
+  Total:	600.2931 secs
+  Slowest:	19.8854 secs
+  Fastest:	0.0139 secs
+  Average:	0.3752 secs
+  Requests/sec:	286.6100
+  
+  Total data:	180409917 bytes
+  Size/request:	1048 bytes
+
+Response time histogram:
+  0.014 [1]	|
+  2.001 [166274]	|■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■
+  3.988 [1303]	|
+  5.975 [3008]	|■
+  7.962 [790]	|
+  9.950 [447]	|
+  11.937 [72]	|
+  13.924 [52]	|
+  15.911 [26]	|
+  17.898 [4]	|
+  19.885 [60]	|
+
+
+Latency distribution:
+  10% in 0.0567 secs
+  25% in 0.1007 secs
+  50% in 0.1810 secs
+  75% in 0.2907 secs
+  90% in 0.4172 secs
+  95% in 0.5661 secs
+  99% in 5.6303 secs
+
+Details (average, fastest, slowest):
+  DNS+dialup:	0.0000 secs, 0.0139 secs, 19.8854 secs
+  DNS-lookup:	0.0000 secs, 0.0000 secs, 0.0046 secs
+  req write:	0.0000 secs, 0.0000 secs, 0.0004 secs
+  resp wait:	0.3752 secs, 0.0139 secs, 19.8853 secs
+  resp read:	0.0000 secs, 0.0000 secs, 3.8405 secs
+
+Status code distribution:
+  [200]	171973 responses
+  [504]	64 responses
+
+Error distribution:
+  [13]	Get "http://backgood.ican/spdn-db/": context deadline exceeded (Client.Timeout exceeded while awaiting headers)
+End time: Sun Oct 19 06:16:14 PM UTC 2025
+
+Sleeping 600s...
+
+===== Testing q=250, estimated c=113 (prev_avg=0.3752s) =====
+Start time: Sun Oct 19 06:26:14 PM UTC 2025
+
+Summary:
+  Total:	600.2815 secs
+  Slowest:	19.4832 secs
+  Fastest:	0.0143 secs
+  Average:	0.3550 secs
+  Requests/sec:	318.2623
+  
+  Total data:	200408303 bytes
+  Size/request:	1049 bytes
+
+Response time histogram:
+  0.014 [1]	|
+  1.961 [184858]	|■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■
+  3.908 [1231]	|
+  5.855 [3430]	|■
+  7.802 [844]	|
+  9.749 [364]	|
+  11.696 [194]	|
+  13.643 [95]	|
+  15.589 [11]	|
+  17.536 [0]	|
+  19.483 [19]	|
+
+
+Latency distribution:
+  10% in 0.0574 secs
+  25% in 0.0993 secs
+  50% in 0.1719 secs
+  75% in 0.2722 secs
+  90% in 0.3596 secs
+  95% in 0.4618 secs
+  99% in 5.5047 secs
+
+Details (average, fastest, slowest):
+  DNS+dialup:	0.0000 secs, 0.0143 secs, 19.4832 secs
+  DNS-lookup:	0.0000 secs, 0.0000 secs, 0.0045 secs
+  req write:	0.0000 secs, 0.0000 secs, 0.0006 secs
+  resp wait:	0.3549 secs, 0.0143 secs, 19.4832 secs
+  resp read:	0.0000 secs, 0.0000 secs, 2.3247 secs
+
+Status code distribution:
+  [200]	191047 responses
+End time: Sun Oct 19 06:36:14 PM UTC 2025
+
+Sleeping 600s...
+
+===== Testing q=300, estimated c=128 (prev_avg=0.3550s) =====
+Start time: Sun Oct 19 06:46:14 PM UTC 2025
+
+Summary:
+  Total:	601.3008 secs
+  Slowest:	19.6878 secs
+  Fastest:	0.0136 secs
+  Average:	0.3393 secs
+  Requests/sec:	371.6343
+  
+  Total data:	234206689 bytes
+  Size/request:	1048 bytes
+
+Response time histogram:
+  0.014 [1]	|
+  1.981 [218929]	|■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■
+  3.948 [655]	|
+  5.916 [1531]	|
+  7.883 [1514]	|
+  9.851 [257]	|
+  11.818 [119]	|
+  13.786 [114]	|
+  15.753 [121]	|
+  17.720 [23]	|
+  19.688 [145]	|
+
+
+Latency distribution:
+  10% in 0.0739 secs
+  25% in 0.1221 secs
+  50% in 0.2002 secs
+  75% in 0.2951 secs
+  90% in 0.3706 secs
+  95% in 0.4383 secs
+  99% in 5.9457 secs
+
+Details (average, fastest, slowest):
+  DNS+dialup:	0.0000 secs, 0.0136 secs, 19.6878 secs
+  DNS-lookup:	0.0000 secs, 0.0000 secs, 0.0049 secs
+  req write:	0.0000 secs, 0.0000 secs, 0.0006 secs
+  resp wait:	0.3392 secs, 0.0136 secs, 19.6878 secs
+  resp read:	0.0000 secs, 0.0000 secs, 3.2705 secs
+
+Status code distribution:
+  [200]	223241 responses
+  [504]	168 responses
+
+Error distribution:
+  [55]	Get "http://backgood.ican/spdn-db/": context deadline exceeded (Client.Timeout exceeded while awaiting headers)
+End time: Sun Oct 19 06:56:16 PM UTC 2025
+
+Sleeping 600s...
+
+===== Testing q=350, estimated c=143 (prev_avg=0.3393s) =====
+Start time: Sun Oct 19 07:06:16 PM UTC 2025
+
+Summary:
+  Total:	600.3048 secs
+  Slowest:	19.9896 secs
+  Fastest:	0.0123 secs
+  Average:	0.3443 secs
+  Requests/sec:	414.8842
+  
+  Total data:	261030062 bytes
+  Size/request:	1048 bytes
+
+Response time histogram:
+  0.012 [1]	|
+  2.010 [246181]	|■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■
+  4.008 [328]	|
+  6.005 [487]	|
+  8.003 [806]	|
+  10.001 [515]	|
+  11.999 [180]	|
+  13.996 [178]	|
+  15.994 [115]	|
+  17.992 [56]	|
+  19.990 [207]	|
+
+
+Latency distribution:
+  10% in 0.0985 secs
+  25% in 0.1474 secs
+  50% in 0.2405 secs
+  75% in 0.3405 secs
+  90% in 0.4184 secs
+  95% in 0.4761 secs
+  99% in 4.2176 secs
+
+Details (average, fastest, slowest):
+  DNS+dialup:	0.0000 secs, 0.0123 secs, 19.9896 secs
+  DNS-lookup:	0.0000 secs, 0.0000 secs, 0.0055 secs
+  req write:	0.0000 secs, 0.0000 secs, 0.0006 secs
+  resp wait:	0.3443 secs, 0.0123 secs, 19.9896 secs
+  resp read:	0.0000 secs, 0.0000 secs, 0.2689 secs
+
+Status code distribution:
+  [200]	248798 responses
+  [504]	256 responses
+
+Error distribution:
+  [3]	Get "http://backgood.ican/spdn-db/": context deadline exceeded (Client.Timeout exceeded while awaiting headers)
+End time: Sun Oct 19 07:16:16 PM UTC 2025
+
+Sleeping 600s...
+
+===== Testing q=400, estimated c=166 (prev_avg=0.3443s) =====
+Start time: Sun Oct 19 07:26:16 PM UTC 2025
+
+Summary:
+  Total:	600.3617 secs
+  Slowest:	19.9840 secs
+  Fastest:	0.0136 secs
+  Average:	0.3940 secs
+  Requests/sec:	418.1396
+  
+  Total data:	262862181 bytes
+  Size/request:	1047 bytes
+
+Response time histogram:
+  0.014 [1]	|
+  2.011 [248109]	|■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■
+  4.008 [153]	|
+  6.005 [462]	|
+  8.002 [469]	|
+  9.999 [561]	|
+  11.996 [303]	|
+  13.993 [224]	|
+  15.990 [172]	|
+  17.987 [63]	|
+  19.984 [481]	|
+
+
+Latency distribution:
+  10% in 0.1008 secs
+  25% in 0.1591 secs
+  50% in 0.2610 secs
+  75% in 0.3844 secs
+  90% in 0.4886 secs
+  95% in 0.5652 secs
+  99% in 4.9989 secs
+
+Details (average, fastest, slowest):
+  DNS+dialup:	0.0000 secs, 0.0136 secs, 19.9840 secs
+  DNS-lookup:	0.0000 secs, 0.0000 secs, 0.0052 secs
+  req write:	0.0000 secs, 0.0000 secs, 0.0005 secs
+  resp wait:	0.3939 secs, 0.0135 secs, 19.9840 secs
+  resp read:	0.0000 secs, 0.0000 secs, 0.3995 secs
+
+Status code distribution:
+  [200]	250509 responses
+  [504]	489 responses
+
+Error distribution:
+  [37]	Get "http://backgood.ican/spdn-db/": context deadline exceeded (Client.Timeout exceeded while awaiting headers)
+End time: Sun Oct 19 07:36:17 PM UTC 2025
+
+Sleeping 600s...
+
+===== Testing q=450, estimated c=213 (prev_avg=0.3940s) =====
+Start time: Sun Oct 19 07:46:17 PM UTC 2025
+
+Summary:
+  Total:	600.3509 secs
+  Slowest:	19.9993 secs
+  Fastest:	0.0148 secs
+  Average:	0.4072 secs
+  Requests/sec:	508.1711
+  
+  Total data:	319733669 bytes
+  Size/request:	1048 bytes
+
+Response time histogram:
+  0.015 [1]	|
+  2.013 [304331]	|■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■
+  4.012 [19]	|
+  6.010 [89]	|
+  8.009 [123]	|
+  10.007 [109]	|
+  12.005 [46]	|
+  14.004 [37]	|
+  16.002 [16]	|
+  18.001 [21]	|
+  19.999 [104]	|
+
+
+Latency distribution:
+  10% in 0.1604 secs
+  25% in 0.2252 secs
+  50% in 0.3813 secs
+  75% in 0.5138 secs
+  90% in 0.6338 secs
+  95% in 0.7251 secs
+  99% in 0.9704 secs
+
+Details (average, fastest, slowest):
+  DNS+dialup:	0.0000 secs, 0.0148 secs, 19.9993 secs
+  DNS-lookup:	0.0000 secs, 0.0000 secs, 0.0117 secs
+  req write:	0.0000 secs, 0.0000 secs, 0.0006 secs
+  resp wait:	0.4071 secs, 0.0147 secs, 19.9992 secs
+  resp read:	0.0001 secs, 0.0000 secs, 0.8530 secs
+
+Status code distribution:
+  [200]	304781 responses
+  [504]	115 responses
+
+Error distribution:
+  [185]	Get "http://backgood.ican/spdn-db/": context deadline exceeded (Client.Timeout exceeded while awaiting headers)
+End time: Sun Oct 19 07:56:17 PM UTC 2025
+
+Sleeping 600s...
+
+===== Testing q=500, estimated c=245 (prev_avg=0.4072s) =====
+Start time: Sun Oct 19 08:06:17 PM UTC 2025
+
+Summary:
+  Total:	600.4371 secs
+  Slowest:	19.9678 secs
+  Fastest:	0.0158 secs
+  Average:	0.4451 secs
+  Requests/sec:	543.5623
+  
+  Total data:	342237974 bytes
+  Size/request:	1048 bytes
+
+Response time histogram:
+  0.016 [1]	|
+  2.011 [326019]	|■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■
+  4.006 [2]	|
+  6.001 [31]	|
+  7.997 [48]	|
+  9.992 [52]	|
+  11.987 [36]	|
+  13.982 [22]	|
+  15.977 [12]	|
+  17.973 [25]	|
+  19.968 [35]	|
+
+
+Latency distribution:
+  10% in 0.1936 secs
+  25% in 0.2623 secs
+  50% in 0.4341 secs
+  75% in 0.5652 secs
+  90% in 0.6875 secs
+  95% in 0.7943 secs
+  99% in 1.0550 secs
+
+Details (average, fastest, slowest):
+  DNS+dialup:	0.0000 secs, 0.0158 secs, 19.9678 secs
+  DNS-lookup:	0.0000 secs, 0.0000 secs, 0.0088 secs
+  req write:	0.0000 secs, 0.0000 secs, 0.0007 secs
+  resp wait:	0.4450 secs, 0.0158 secs, 19.9678 secs
+  resp read:	0.0000 secs, 0.0000 secs, 0.8804 secs
+
+Status code distribution:
+  [200]	326246 responses
+  [504]	37 responses
+
+Error distribution:
+  [92]	Get "http://backgood.ican/spdn-db/": context deadline exceeded (Client.Timeout exceeded while awaiting headers)
+End time: Sun Oct 19 08:16:18 PM UTC 2025
+
+Sleeping 600s...
+
+===== Testing q=550, estimated c=294 (prev_avg=0.4451s) =====
+Start time: Sun Oct 19 08:26:18 PM UTC 2025
+
+Summary:
+  Total:	600.4610 secs
+  Slowest:	19.9709 secs
+  Fastest:	0.0161 secs
+  Average:	0.5146 secs
+  Requests/sec:	563.6720
+  
+  Total data:	354883900 bytes
+  Size/request:	1048 bytes
+
+Response time histogram:
+  0.016 [1]	|
+  2.012 [338056]	|■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■
+  4.007 [20]	|
+  6.003 [6]	|
+  7.998 [31]	|
+  9.993 [43]	|
+  11.989 [40]	|
+  13.984 [41]	|
+  15.980 [32]	|
+  17.975 [15]	|
+  19.971 [60]	|
+
+
+Latency distribution:
+  10% in 0.2290 secs
+  25% in 0.3088 secs
+  50% in 0.5028 secs
+  75% in 0.6509 secs
+  90% in 0.7802 secs
+  95% in 0.8955 secs
+  99% in 1.2439 secs
+
+Details (average, fastest, slowest):
+  DNS+dialup:	0.0001 secs, 0.0161 secs, 19.9709 secs
+  DNS-lookup:	0.0000 secs, 0.0000 secs, 0.0221 secs
+  req write:	0.0000 secs, 0.0000 secs, 0.0007 secs
+  resp wait:	0.5145 secs, 0.0161 secs, 19.9708 secs
+  resp read:	0.0000 secs, 0.0000 secs, 1.8940 secs
+
+Status code distribution:
+  [200]	338300 responses
+  [504]	45 responses
+
+Error distribution:
+  [118]	Get "http://backgood.ican/spdn-db/": context deadline exceeded (Client.Timeout exceeded while awaiting headers)
+End time: Sun Oct 19 08:36:18 PM UTC 2025
+
+Sleeping 600s...
+
+===== Testing q=600, estimated c=371 (prev_avg=0.5146s) =====
+Start time: Sun Oct 19 08:46:18 PM UTC 2025
+
+Summary:
+  Total:	600.6419 secs
+  Slowest:	19.9686 secs
+  Fastest:	0.0165 secs
+  Average:	0.6534 secs
+  Requests/sec:	557.3604
+  
+  Total data:	350921098 bytes
+  Size/request:	1048 bytes
+
+Response time histogram:
+  0.017 [1]	|
+  2.012 [333990]	|■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■
+  4.007 [274]	|
+  6.002 [1]	|
+  7.997 [29]	|
+  9.993 [32]	|
+  11.988 [58]	|
+  13.983 [29]	|
+  15.978 [35]	|
+  17.973 [33]	|
+  19.969 [87]	|
+
+
+Latency distribution:
+  10% in 0.2785 secs
+  25% in 0.3829 secs
+  50% in 0.6184 secs
+  75% in 0.8279 secs
+  90% in 1.0493 secs
+  95% in 1.2120 secs
+  99% in 1.6180 secs
+
+Details (average, fastest, slowest):
+  DNS+dialup:	0.0001 secs, 0.0165 secs, 19.9686 secs
+  DNS-lookup:	0.0000 secs, 0.0000 secs, 0.0165 secs
+  req write:	0.0000 secs, 0.0000 secs, 0.0005 secs
+  resp wait:	0.6532 secs, 0.0165 secs, 19.9686 secs
+  resp read:	0.0001 secs, 0.0000 secs, 2.0883 secs
+
+Status code distribution:
+  [200]	334522 responses
+  [504]	47 responses
+
+Error distribution:
+  [205]	Get "http://backgood.ican/spdn-db/": context deadline exceeded (Client.Timeout exceeded while awaiting headers)
+End time: Sun Oct 19 08:56:19 PM UTC 2025
+
+Sleeping 600s...
+
+===== Testing q=650, estimated c=510 (prev_avg=0.6534s) =====
+Start time: Sun Oct 19 09:06:19 PM UTC 2025
+
+Summary:
+  Total:	600.9399 secs
+  Slowest:	19.8941 secs
+  Fastest:	0.0149 secs
+  Average:	0.9067 secs
+  Requests/sec:	545.9181
+  
+  Total data:	343654658 bytes
+  Size/request:	1048 bytes
+
+Response time histogram:
+  0.015 [1]	|
+  2.003 [319025]	|■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■
+  3.991 [8479]	|■
+  5.979 [6]	|
+  7.967 [2]	|
+  9.954 [21]	|
+  11.942 [22]	|
+  13.930 [6]	|
+  15.918 [22]	|
+  17.906 [13]	|
+  19.894 [6]	|
+
+
+Latency distribution:
+  10% in 0.3826 secs
+  25% in 0.5344 secs
+  50% in 0.8539 secs
+  75% in 1.1658 secs
+  90% in 1.4870 secs
+  95% in 1.7466 secs
+  99% in 2.3802 secs
+
+Details (average, fastest, slowest):
+  DNS+dialup:	0.0002 secs, 0.0149 secs, 19.8941 secs
+  DNS-lookup:	0.0000 secs, 0.0000 secs, 0.0193 secs
+  req write:	0.0000 secs, 0.0000 secs, 0.0007 secs
+  resp wait:	0.9064 secs, 0.0149 secs, 19.8941 secs
+  resp read:	0.0001 secs, 0.0000 secs, 2.9876 secs
+
+Status code distribution:
+  [200]	327602 responses
+  [504]	1 responses
+
+Error distribution:
+  [461]	Get "http://backgood.ican/spdn-db/": context deadline exceeded (Client.Timeout exceeded while awaiting headers)
+End time: Sun Oct 19 09:16:20 PM UTC 2025
+
+Sleeping 600s...
+
+===== Testing q=700, estimated c=762 (prev_avg=0.9067s) =====
+Start time: Sun Oct 19 09:26:20 PM UTC 2025
+
+Summary:
+  Total:	601.2505 secs
+  Slowest:	19.2528 secs
+  Fastest:	0.0191 secs
+  Average:	1.3412 secs
+  Requests/sec:	550.5975
+  
+  Total data:	346498337 bytes
+  Size/request:	1049 bytes
+
+Response time histogram:
+  0.019 [1]	|
+  1.942 [276225]	|■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■
+  3.866 [53535]	|■■■■■■■■
+  5.789 [519]	|
+  7.713 [4]	|
+  9.636 [1]	|
+  11.559 [0]	|
+  13.483 [9]	|
+  15.406 [13]	|
+  17.329 [2]	|
+  19.253 [4]	|
+
+
+Latency distribution:
+  10% in 0.5943 secs
+  25% in 0.8427 secs
+  50% in 1.3043 secs
+  75% in 1.7429 secs
+  90% in 2.1467 secs
+  95% in 2.4111 secs
+  99% in 3.0595 secs
+
+Details (average, fastest, slowest):
+  DNS+dialup:	0.0003 secs, 0.0191 secs, 19.2528 secs
+  DNS-lookup:	0.0000 secs, 0.0000 secs, 0.0284 secs
+  req write:	0.0000 secs, 0.0000 secs, 0.0012 secs
+  resp wait:	1.3407 secs, 0.0191 secs, 19.1326 secs
+  resp read:	0.0002 secs, 0.0000 secs, 5.5536 secs
+
+Status code distribution:
+  [200]	330313 responses
+
+Error distribution:
+  [734]	Get "http://backgood.ican/spdn-db/": context deadline exceeded (Client.Timeout exceeded while awaiting headers)
+End time: Sun Oct 19 09:36:22 PM UTC 2025
+
+Sleeping 600s...
+
+===== Testing q=750, estimated c=1208 (prev_avg=1.3412s) =====
+Start time: Sun Oct 19 09:46:22 PM UTC 2025
+
+Summary:
+  Total:	605.8872 secs
+  Slowest:	15.9239 secs
+  Fastest:	0.0610 secs
+  Average:	2.0743 secs
+  Requests/sec:	139908.4135
+  
+  Total data:	301036775 bytes
+  Size/request:	1049 bytes
+
+Response time histogram:
+  0.061 [1]	|
+  1.647 [103990]	|■■■■■■■■■■■■■■■■■■■■■■■■■■■
+  3.234 [151582]	|■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■
+  4.820 [29297]	|■■■■■■■■
+  6.406 [2006]	|■
+  7.992 [88]	|
+  9.579 [6]	|
+  11.165 [3]	|
+  12.751 [0]	|
+  14.338 [1]	|
+  15.924 [1]	|
+
+
+Latency distribution:
+  10% in 0.9148 secs
+  25% in 1.3590 secs
+  50% in 2.0287 secs
+  75% in 2.6575 secs
+  90% in 3.2940 secs
+  95% in 3.7308 secs
+  99% in 4.6587 secs
+
+Details (average, fastest, slowest):
+  DNS+dialup:	0.0007 secs, 0.0610 secs, 15.9239 secs
+  DNS-lookup:	0.0002 secs, 0.0000 secs, 0.0404 secs
+  req write:	0.0000 secs, 0.0000 secs, 0.0062 secs
+  resp wait:	2.0731 secs, 0.0609 secs, 10.9689 secs
+  resp read:	0.0003 secs, 0.0000 secs, 8.9907 secs
+
+Status code distribution:
+  [200]	286975 responses
+
+Error distribution:
+  [822]	Get "http://backgood.ican/spdn-db/": context deadline exceeded (Client.Timeout exceeded while awaiting headers)
+  [26074]	Get "http://backgood.ican/spdn-db/": dial tcp 172.0.0.100:80: socket: too many open files
+  [84224374]	Get "http://backgood.ican/spdn-db/": dial tcp: lookup backgood.ican on 127.0.0.53:53: dial udp 127.0.0.53:53: socket: too many open files
+  [230477]	Get "http://backgood.ican/spdn-db/": dial tcp: lookup backgood.ican on 127.0.0.53:53: no such host
+End time: Sun Oct 19 09:56:28 PM UTC 2025
+
+Sleeping 600s...
+
+===== Testing q=800, estimated c=1992 (prev_avg=2.0743s) =====
+Start time: Sun Oct 19 10:06:28 PM UTC 2025
+
+Summary:
+  Total:	601.5276 secs
+  Slowest:	19.3996 secs
+  Fastest:	0.0205 secs
+  Average:	1.7949 secs
+  Requests/sec:	633487.7119
+  
+  Total data:	346094952 bytes
+  Size/request:	1048 bytes
+
+Response time histogram:
+  0.020 [1]	|
+  1.958 [197445]	|■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■
+  3.896 [129149]	|■■■■■■■■■■■■■■■■■■■■■■■■■■
+  5.834 [3290]	|■
+  7.772 [42]	|
+  9.710 [1]	|
+  11.648 [0]	|
+  13.586 [0]	|
+  15.524 [0]	|
+  17.462 [0]	|
+  19.400 [3]	|
+
+
+Latency distribution:
+  10% in 0.9810 secs
+  25% in 1.2699 secs
+  50% in 1.7809 secs
+  75% in 2.2118 secs
+  90% in 2.6516 secs
+  95% in 2.9932 secs
+  99% in 3.9021 secs
+
+Details (average, fastest, slowest):
+  DNS+dialup:	0.0005 secs, 0.0205 secs, 19.3996 secs
+  DNS-lookup:	0.0009 secs, 0.0000 secs, 0.0393 secs
+  req write:	0.0001 secs, 0.0000 secs, 0.0198 secs
+  resp wait:	1.7913 secs, 0.0200 secs, 19.3590 secs
+  resp read:	0.0004 secs, 0.0000 secs, 4.1579 secs
+
+Status code distribution:
+  [200]	329928 responses
+  [504]	3 responses
+
+Error distribution:
+  [1001]	Get "http://backgood.ican/spdn-db/": context deadline exceeded (Client.Timeout exceeded while awaiting headers)
+  [185933]	Get "http://backgood.ican/spdn-db/": dial tcp 172.0.0.100:80: socket: too many open files
+  [379549813]	Get "http://backgood.ican/spdn-db/": dial tcp: lookup backgood.ican on 127.0.0.53:53: dial udp 127.0.0.53:53: socket: too many open files
+  [993681]	Get "http://backgood.ican/spdn-db/": dial tcp: lookup backgood.ican on 127.0.0.53:53: no such host
+End time: Sun Oct 19 10:16:30 PM UTC 2025
+
+Sleeping 600s...
+
+===== Testing q=850, estimated c=1831 (prev_avg=1.7949s) =====
+Start time: Sun Oct 19 10:26:30 PM UTC 2025
+
+Summary:
+  Total:	601.5443 secs
+  Slowest:	19.7489 secs
+  Fastest:	0.0249 secs
+  Average:	1.7904 secs
+  Requests/sec:	583451.9603
+  
+  Total data:	347048384 bytes
+  Size/request:	1048 bytes
+
+Response time histogram:
+  0.025 [1]	|
+  1.997 [211162]	|■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■
+  3.970 [117114]	|■■■■■■■■■■■■■■■■■■■■■■
+  5.942 [2519]	|
+  7.914 [38]	|
+  9.887 [1]	|
+  11.859 [0]	|
+  13.832 [1]	|
+  15.804 [0]	|
+  17.776 [2]	|
+  19.749 [7]	|
+
+
+Latency distribution:
+  10% in 0.9907 secs
+  25% in 1.2765 secs
+  50% in 1.7571 secs
+  75% in 2.2052 secs
+  90% in 2.6624 secs
+  95% in 2.9987 secs
+  99% in 3.8440 secs
+
+Details (average, fastest, slowest):
+  DNS+dialup:	0.0005 secs, 0.0249 secs, 19.7489 secs
+  DNS-lookup:	0.0007 secs, 0.0000 secs, 0.0368 secs
+  req write:	0.0001 secs, 0.0000 secs, 0.0122 secs
+  resp wait:	1.7877 secs, 0.0227 secs, 19.5746 secs
+  resp read:	0.0004 secs, 0.0000 secs, 4.7245 secs
+
+Status code distribution:
+  [200]	330836 responses
+  [502]	2 responses
+  [504]	7 responses
+
+Error distribution:
+  [982]	Get "http://backgood.ican/spdn-db/": context deadline exceeded (Client.Timeout exceeded while awaiting headers)
+  [175680]	Get "http://backgood.ican/spdn-db/": dial tcp 172.0.0.100:80: socket: too many open files
+  [349389433]	Get "http://backgood.ican/spdn-db/": dial tcp: lookup backgood.ican on 127.0.0.53:53: dial udp 127.0.0.53:53: socket: too many open files
+  [1075266]	Get "http://backgood.ican/spdn-db/": dial tcp: lookup backgood.ican on 127.0.0.53:53: no such host
+End time: Sun Oct 19 10:36:31 PM UTC 2025
+
+Sleeping 600s...
+
+===== Testing q=900, estimated c=1934 (prev_avg=1.7904s) =====
+Start time: Sun Oct 19 10:46:31 PM UTC 2025
+
+Summary:
+  Total:	601.4021 secs
+  Slowest:	19.1940 secs
+  Fastest:	0.0235 secs
+  Average:	1.7908 secs
+  Requests/sec:	681514.4151
+  
+  Total data:	346746861 bytes
+  Size/request:	1048 bytes
+
+Response time histogram:
+  0.023 [1]	|
+  1.941 [198402]	|■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■
+  3.858 [128471]	|■■■■■■■■■■■■■■■■■■■■■■■■■■
+  5.775 [3589]	|■
+  7.692 [84]	|
+  9.609 [1]	|
+  11.526 [0]	|
+  13.443 [1]	|
+  15.360 [0]	|
+  17.277 [0]	|
+  19.194 [6]	|
+
+
+Latency distribution:
+  10% in 0.9370 secs
+  25% in 1.2363 secs
+  50% in 1.7470 secs
+  75% in 2.2329 secs
+  90% in 2.7337 secs
+  95% in 3.1058 secs
+  99% in 3.9206 secs
+
+Details (average, fastest, slowest):
+  DNS+dialup:	0.0005 secs, 0.0235 secs, 19.1940 secs
+  DNS-lookup:	0.0010 secs, 0.0000 secs, 0.0266 secs
+  req write:	0.0001 secs, 0.0000 secs, 0.0183 secs
+  resp wait:	1.7881 secs, 0.0196 secs, 19.1654 secs
+  resp read:	0.0003 secs, 0.0000 secs, 7.1059 secs
+
+Status code distribution:
+  [200]	330549 responses
+  [504]	6 responses
+
+Error distribution:
+  [993]	Get "http://backgood.ican/spdn-db/": context deadline exceeded (Client.Timeout exceeded while awaiting headers)
+  [209943]	Get "http://backgood.ican/spdn-db/": dial tcp 172.0.0.100:80: socket: too many open files
+  [408164487]	Get "http://backgood.ican/spdn-db/": dial tcp: lookup backgood.ican on 127.0.0.53:53: dial udp 127.0.0.53:53: socket: too many open files
+  [1158220]	Get "http://backgood.ican/spdn-db/": dial tcp: lookup backgood.ican on 127.0.0.53:53: no such host
+End time: Sun Oct 19 10:56:33 PM UTC 2025
+
+Sleeping 600s...
+
+===== Testing q=950, estimated c=2042 (prev_avg=1.7908s) =====
+Start time: Sun Oct 19 11:06:33 PM UTC 2025
+
+Summary:
+  Total:	601.5611 secs
+  Slowest:	19.6733 secs
+  Fastest:	0.0212 secs
+  Average:	1.8031 secs
+  Requests/sec:	709692.9473
+  
+  Total data:	344521843 bytes
+  Size/request:	1048 bytes
+
+Response time histogram:
+  0.021 [1]	|
+  1.986 [204932]	|■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■
+  3.952 [120062]	|■■■■■■■■■■■■■■■■■■■■■■■
+  5.917 [2929]	|■
+  7.882 [440]	|
+  9.847 [58]	|
+  11.812 [5]	|
+  13.778 [0]	|
+  15.743 [0]	|
+  17.708 [0]	|
+  19.673 [12]	|
+
+
+Latency distribution:
+  10% in 0.9753 secs
+  25% in 1.2664 secs
+  50% in 1.7623 secs
+  75% in 2.2145 secs
+  90% in 2.6714 secs
+  95% in 3.0605 secs
+  99% in 3.9733 secs
+
+Details (average, fastest, slowest):
+  DNS+dialup:	0.0005 secs, 0.0212 secs, 19.6733 secs
+  DNS-lookup:	0.0011 secs, 0.0000 secs, 0.0365 secs
+  req write:	0.0001 secs, 0.0000 secs, 0.0223 secs
+  resp wait:	1.7986 secs, 0.0171 secs, 19.6157 secs
+  resp read:	0.0006 secs, 0.0000 secs, 3.9765 secs
+
+Status code distribution:
+  [200]	328427 responses
+  [504]	12 responses
+
+Error distribution:
+  [1006]	Get "http://backgood.ican/spdn-db/": context deadline exceeded (Client.Timeout exceeded while awaiting headers)
+  [195130]	Get "http://backgood.ican/spdn-db/": dial tcp 172.0.0.100:80: socket: too many open files
+  [425304790]	Get "http://backgood.ican/spdn-db/": dial tcp: lookup backgood.ican on 127.0.0.53:53: dial udp 127.0.0.53:53: socket: too many open files
+  [1094275]	Get "http://backgood.ican/spdn-db/": dial tcp: lookup backgood.ican on 127.0.0.53:53: no such host
+End time: Sun Oct 19 11:16:35 PM UTC 2025
+
+Sleeping 600s...
+
+===== Testing q=1000, estimated c=2164 (prev_avg=1.8031s) =====
+Start time: Sun Oct 19 11:26:35 PM UTC 2025
+
+Summary:
+  Total:	601.6610 secs
+  Slowest:	19.9160 secs
+  Fastest:	0.0180 secs
+  Average:	1.8153 secs
+  Requests/sec:	476547.7462
+  
+  Total data:	343050025 bytes
+  Size/request:	1048 bytes
+
+Response time histogram:
+  0.018 [1]	|
+  2.008 [204726]	|■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■
+  3.998 [118873]	|■■■■■■■■■■■■■■■■■■■■■■■
+  5.987 [3403]	|■
+  7.977 [17]	|
+  9.967 [4]	|
+  11.957 [1]	|
+  13.947 [0]	|
+  15.936 [0]	|
+  17.926 [1]	|
+  19.916 [4]	|
+
+
+Latency distribution:
+  10% in 0.9644 secs
+  25% in 1.2718 secs
+  50% in 1.7741 secs
+  75% in 2.2477 secs
+  90% in 2.7290 secs
+  95% in 3.0941 secs
+  99% in 4.0210 secs
+
+Details (average, fastest, slowest):
+  DNS+dialup:	0.0005 secs, 0.0180 secs, 19.9160 secs
+  DNS-lookup:	0.0066 secs, 0.0000 secs, 0.0819 secs
+  req write:	0.0002 secs, 0.0000 secs, 0.0449 secs
+  resp wait:	1.8068 secs, 0.0178 secs, 19.8911 secs
+  resp read:	0.0006 secs, 0.0000 secs, 6.1139 secs
+
+Status code distribution:
+  [200]	327025 responses
+  [504]	5 responses
+
+Error distribution:
+  [1007]	Get "http://backgood.ican/spdn-db/": context deadline exceeded (Client.Timeout exceeded while awaiting headers)
+  [190278]	Get "http://backgood.ican/spdn-db/": dial tcp 172.0.0.100:80: socket: too many open files
+  [285180548]	Get "http://backgood.ican/spdn-db/": dial tcp: lookup backgood.ican on 127.0.0.53:53: dial udp 127.0.0.53:53: socket: too many open files
+  [1021325]	Get "http://backgood.ican/spdn-db/": dial tcp: lookup backgood.ican on 127.0.0.53:53: no such host
+End time: Sun Oct 19 11:36:37 PM UTC 2025
+
+✅ All tests completed at Sun Oct 19 11:36:37 PM UTC 2025

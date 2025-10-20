@@ -6,7 +6,7 @@ from matplotlib.colors import Normalize
 from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
 
 # 讀檔
-csv_path = 'NSGA4_generation_solutions.csv'
+csv_path = 'NSCO_generation_solutions.csv'
 df = pd.read_csv(csv_path)
 
 # 解析 sol（此時內容已是純 float）
@@ -43,7 +43,7 @@ sc = ax.scatter(X, Y, Z, c=G, cmap=cmap, norm=norm, s=50, edgecolor='k', alpha=0
 ax.set_xlabel('LoadBalance')
 ax.set_ylabel('Average Delay')
 ax.set_zlabel('Cost')  # <- 修正
-ax.set_title('NSGA-IV 各世代解答三維目標圖')
+ax.set_title('NSCO')
 
 # colorbar 顯示世代
 cbar = plt.colorbar(sc, ax=ax, pad=0.1)
